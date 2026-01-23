@@ -178,6 +178,16 @@ def render_live_sessions_image(
         except Exception:
             danmu = 0
 
+        # NEW: 平均同接/最高同接
+        try:
+            avg_cc = int(round(float(s.get("avg_concurrency") or 0)))
+        except Exception:
+            avg_cc = 0
+        try:
+            max_cc = int(s.get("max_concurrency") or 0)
+        except Exception:
+            max_cc = 0
+
         gift = float(s.get("gift") or 0)
         guard = float(s.get("guard") or 0)
         sc = float(s.get("super_chat") or 0)
@@ -203,6 +213,8 @@ def render_live_sessions_image(
                 "end": end_disp,
                 "duration": _sec_to_hms(dur_sec),
                 "danmu": danmu,
+                "avg_cc": avg_cc,   # NEW
+                "max_cc": max_cc,   # NEW
                 "title": title,
                 "gift": gift,
                 "guard": guard,
@@ -218,8 +230,9 @@ def render_live_sessions_image(
         total_sum += subtotal
         total_seconds += max(0, dur_sec)
 
-    col_widths = [350, 350, 200, 120, 600, 150, 150, 150, 200]
-    headers = ["开播时间", "下播时间", "本场直播时间", "弹幕数", "本场直播标题", "礼物", "舰长", "SC", "总计"]
+    # NEW: 在“弹幕数”和“本场直播标题”之间插入两列，宽度均 150
+    col_widths = [350, 350, 200, 120, 150, 150, 600, 150, 150, 150, 200]
+    headers = ["开播时间", "下播时间", "本场直播时间", "弹幕数", "平均同接", "最高同接", "本场直播标题", "礼物", "舰长", "SC", "总计"]
 
     row_height = 60
     table_width = sum(col_widths) + 40
@@ -263,11 +276,14 @@ def render_live_sessions_image(
             bg = Color.LIGHTGRAY if (idx % 2 == 0) else Color.WHITE
             pic.draw_rounded_rectangle(origin_x, cur_y, table_width - 40, row_height, 0, bg)
 
+            # NEW: 插入 avg_cc / max_cc 两列
             cells = [
                 r["start"],
                 r["end"],
                 r["duration"],
                 str(r["danmu"]),
+                str(r["avg_cc"]),   # NEW
+                str(r["max_cc"]),   # NEW
                 r["title"],
                 f"{r['gift']:.1f}",
                 f"{r['guard']:.1f}",
@@ -286,12 +302,16 @@ def render_live_sessions_image(
 
     # 合计行
     pic.draw_rounded_rectangle(origin_x, cur_y, table_width - 40, row_height, 0, Color.LIGHTGRAY)
+
+    # NEW: 合计行补齐两列占位（平均同接/最高同接），避免列数不匹配
     total_cells = [
         f"场次：{len(rows)}",
         "",
         _sec_to_hms(total_seconds),
         str(total_danmu),
-        "",
+        "",  # avg_cc 合计不计算
+        "",  # max_cc 合计不计算
+        "",  # title
         f"{total_gift:.1f}",
         f"{total_guard:.1f}",
         f"{total_sc:.1f}",
@@ -308,7 +328,6 @@ def render_live_sessions_image(
 
     pic.crop_and_paste_bottom()
     return pic.base64()
-
 
 # ========================= ③ 查SC：查询函数 =========================
 async def query_sc_list(*, base: str, room_id: str, month_code: str) -> List[Dict[str, Any]]:

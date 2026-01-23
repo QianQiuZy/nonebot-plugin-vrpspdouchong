@@ -103,13 +103,13 @@ async def _fetch_json_list(url: str) -> List[Dict[str, Any]]:
 def _render_live_list_image(title: str, live_list: List[Dict[str, Any]]) -> str:
     """
     表头：title + 当前时间
-    列：开播时间、主播名称、已开播时长、直播标题
+    列：开播时间、主播名称、已开播时长、即时同接、直播标题
     排序：live_time 降序（已在上层处理）
     """
     # ---------- 表格参数 ----------
     row_height = 60
-    col_widths = [350, 300, 200, 600]
-    headers = ["开播时间", "主播名称", "已开播时长", "直播标题"]
+    col_widths = [350, 300, 200, 150, 600]
+    headers = ["开播时间", "主播名称", "已开播时长", "即时同接", "直播标题"]
 
     table_width = sum(col_widths) + 40
     table_height = row_height * (len(live_list) + 1) + 40
@@ -153,10 +153,11 @@ def _render_live_list_image(title: str, live_list: List[Dict[str, Any]]) -> str:
         live_time_val = _safe_str(d.get("live_time", "0000-00-00 00:00:00"))
         anchor_name = _safe_str(d.get("anchor_name", ""))
         duration_val = _calc_live_duration_hms(live_time_val)
+        current_cc = _to_int(d.get("current_concurrency", 0))
         live_title = _safe_str(d.get("title", ""))
 
         # 裁剪直播标题以避免溢出（最大宽度=最后一列宽度-少量 padding）
-        live_title = _limit_text_by_px(pic, live_title, max_px=col_widths[3] - 20)
+        live_title = _limit_text_by_px(pic, live_title, max_px=col_widths[4] - 20)
 
         cur_x = origin_x + 10
         pic.set_pos(cur_x, cur_y + 18).draw_text(live_time_val, [Color.BLACK])
@@ -167,6 +168,10 @@ def _render_live_list_image(title: str, live_list: List[Dict[str, Any]]) -> str:
 
         pic.set_pos(cur_x, cur_y + 18).draw_text(duration_val, [Color.BLACK])
         cur_x += col_widths[2]
+
+        # NEW: 即时同接
+        pic.set_pos(cur_x, cur_y + 18).draw_text(str(current_cc), [Color.BLACK])
+        cur_x += col_widths[3]
 
         pic.set_pos(cur_x, cur_y + 18).draw_text(live_title, [Color.BLACK])
 
