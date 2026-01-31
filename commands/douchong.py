@@ -164,6 +164,8 @@ def render_table_image(title: str, data_list: List[Dict[str, Any]], month_code: 
         90,   # 提督数量
         90,   # 总督数量
         120,  # 粉丝团数量
+        100,  # 盲盒数
+        130,  # 盲盒盈亏
         150,  # 礼物
         150,  # SC
         150,  # 上舰金额
@@ -171,7 +173,7 @@ def render_table_image(title: str, data_list: List[Dict[str, Any]], month_code: 
     ]
     headers = [
         "主播名称", "粉丝数", "直播状态", "直播时间", "有效天",
-        "舰长", "提督", "总督", "粉丝团",
+        "舰长", "提督", "总督", "粉丝团","盲盒数", "盲盒盈亏",
         "礼物", "SC", "上舰", "总计",
     ]
 
@@ -231,7 +233,9 @@ def render_table_image(title: str, data_list: List[Dict[str, Any]], month_code: 
             (format_count(d.get("guard_2")), Color.BLACK),
             (format_count(d.get("guard_3")), Color.BLACK),
             (format_count(d.get("fans_count")), Color.BLACK),
+            (format_count(d.get("blind_box_count")), Color.BLACK),
 
+            (f"{_to_float(d.get('blind_box_profit', 0)):.1f}", Color.BLACK),
             (f"{_to_float(d.get('gift', 0)):.1f}", Color.BLACK),
             (f"{_to_float(d.get('super_chat', 0)):.1f}", Color.BLACK),
             (f"{_to_float(d.get('guard', 0)):.1f}", Color.BLACK),

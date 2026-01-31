@@ -162,6 +162,8 @@ def render_live_sessions_image(
 
     rows: List[Dict[str, Any]] = []
     total_danmu = 0
+    total_box = 0
+    total_profit = 0.0
     total_gift = 0.0
     total_guard = 0.0
     total_sc = 0.0
@@ -188,6 +190,8 @@ def render_live_sessions_image(
         except Exception:
             max_cc = 0
 
+        blind_box_count = int(s.get("blind_box_count") or 0)
+        blind_box_profit = float(s.get("blind_box_profit") or 0)
         gift = float(s.get("gift") or 0)
         guard = float(s.get("guard") or 0)
         sc = float(s.get("super_chat") or 0)
@@ -216,6 +220,8 @@ def render_live_sessions_image(
                 "avg_cc": avg_cc,   # NEW
                 "max_cc": max_cc,   # NEW
                 "title": title,
+                "blind_box_count": blind_box_count,
+                "blind_box_profit": blind_box_profit,
                 "gift": gift,
                 "guard": guard,
                 "sc": sc,
@@ -223,6 +229,8 @@ def render_live_sessions_image(
             }
         )
 
+        total_box += blind_box_count
+        total_profit += blind_box_profit
         total_danmu += danmu
         total_gift += gift
         total_guard += guard
@@ -231,8 +239,8 @@ def render_live_sessions_image(
         total_seconds += max(0, dur_sec)
 
     # NEW: 在“弹幕数”和“本场直播标题”之间插入两列，宽度均 150
-    col_widths = [350, 350, 200, 120, 150, 150, 600, 150, 150, 150, 200]
-    headers = ["开播时间", "下播时间", "本场直播时间", "弹幕数", "平均同接", "最高同接", "本场直播标题", "礼物", "舰长", "SC", "总计"]
+    col_widths = [350, 350, 200, 120, 150, 150, 600, 100, 120, 150, 150, 150, 200]
+    headers = ["开播时间", "下播时间", "本场直播时间", "弹幕数", "平均同接", "最高同接", "本场直播标题", "盲盒数", "盲盒盈亏", "礼物", "舰长", "SC", "总计"]
 
     row_height = 60
     table_width = sum(col_widths) + 40
@@ -285,6 +293,8 @@ def render_live_sessions_image(
                 str(r["avg_cc"]),   # NEW
                 str(r["max_cc"]),   # NEW
                 r["title"],
+                str(r["blind_box_count"]),
+                f"{r['blind_box_profit']:.1f}",
                 f"{r['gift']:.1f}",
                 f"{r['guard']:.1f}",
                 f"{r['sc']:.1f}",
@@ -312,6 +322,8 @@ def render_live_sessions_image(
         "",  # avg_cc 合计不计算
         "",  # max_cc 合计不计算
         "",  # title
+        str(total_box),
+        f"{total_profit:.1f}",
         f"{total_gift:.1f}",
         f"{total_guard:.1f}",
         f"{total_sc:.1f}",
