@@ -34,6 +34,12 @@ PSP斗虫 = on_command(
     priority=5,
 )
 
+大乱斗斗虫 = on_command(
+    "大乱斗斗虫",
+    block=True,
+    priority=5,
+)
+
 _MONTH_RE_1 = re.compile(r"^(\d{4})(\d{2})$")
 _MONTH_RE_2 = re.compile(r"^(\d{4})-(\d{2})$")
 
@@ -272,7 +278,7 @@ async def _handle_douchong(event: MessageEvent, arg: Message, *, api_base: str, 
     if raw:
         month_code = normalize_month_arg(raw)
         if not month_code:
-            return await MessageSegment.text(
+            return MessageSegment.text(
                 "月份格式不正确，请使用 YYYYMM 或 YYYY-MM，例如：202509 或 2025-09"
             )
     else:
@@ -283,19 +289,70 @@ async def _handle_douchong(event: MessageEvent, arg: Message, *, api_base: str, 
     try:
         data_list = await fetch_month_data(api_base, month_code)
     except Exception as e:
-        return await MessageSegment.text(f"请求数据失败：{e}")
+        return MessageSegment.text(f"请求数据失败：{e}")
 
     if not data_list:
-        return await MessageSegment.text(f"无数据：{month_code}")
+        return MessageSegment.text(f"无数据：{month_code}")
 
     try:
         b64 = render_table_image(title, data_list, month_code)
     except Exception as e:
         logger.exception("render_table_image failed")
-        return await MessageSegment.text(f"生成图片失败：{e}")
+        return MessageSegment.text(f"生成图片失败：{e}")
 
     return MessageSegment.image(f"base64://{b64}")
 
+async def _handle_douchong_brawl(event: MessageEvent, arg: Message):
+    """
+    /大乱斗斗虫 [YYYYMM|YYYY-MM]
+    拉取 VR + PSP 两份数据，合并后按 total 排序，绘图复用 render_table_image。
+    """
+    raw = ""
+    try:
+        raw = arg.extract_plain_text().strip()
+    except Exception:
+        raw = str(arg).strip()
+
+    if raw:
+        month_code = normalize_month_arg(raw)
+        if not month_code:
+            # 按你的需求强调 YYYYMM，同时兼容 YYYY-MM（normalize_month_arg 已支持）
+            return MessageSegment.text("月份格式不正确，请使用 YYYYMM，例如：202601")
+    else:
+        month_code = current_month_code()
+
+    title = "VRPSP大乱斗"
+    logger.info(f"[{title}] month={month_code} user={getattr(event, 'user_id', None)}")
+
+    try:
+        vr_list = await fetch_month_data(cfg.vr_gift_api_base, month_code)
+    except Exception as e:
+        return MessageSegment.text(f"请求 VR 数据失败：{e}")
+
+    try:
+        psp_list = await fetch_month_data(cfg.psp_gift_api_base, month_code)
+    except Exception as e:
+        return MessageSegment.text(f"请求 PSP 数据失败：{e}")
+
+    # 平台标识：不改绘图结构，通过主播名加前缀区分来源
+    for d in vr_list:
+        if isinstance(d, dict):
+            d["anchor_name"] = f"{d.get('anchor_name', '')}"
+    for d in psp_list:
+        if isinstance(d, dict):
+            d["anchor_name"] = f"{d.get('anchor_name', '')}"
+
+    data_list = [d for d in (vr_list + psp_list) if isinstance(d, dict)]
+    if not data_list:
+        return MessageSegment.text(f"无数据：{month_code}")
+
+    try:
+        b64 = render_table_image(title, data_list, month_code)
+    except Exception as e:
+        logger.exception("render_table_image failed")
+        return MessageSegment.text(f"生成图片失败：{e}")
+
+    return MessageSegment.image(f"base64://{b64}")
 
 @VR斗虫.handle()
 async def _(event: MessageEvent, arg: Message = CommandArg()):
@@ -317,3 +374,8 @@ async def _(event: MessageEvent, arg: Message = CommandArg()):
         title=cfg.psp_douchong_title,
     )
     await PSP斗虫.finish(seg)
+
+@大乱斗斗虫.handle()
+async def _(event: MessageEvent, arg: Message = CommandArg()):
+    seg = await _handle_douchong_brawl(event, arg)
+    await 大乱斗斗虫.finish(seg)

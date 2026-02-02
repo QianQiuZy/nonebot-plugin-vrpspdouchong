@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import datetime
 import time
+import asyncio
 from typing import Any, Dict, List
 
 import httpx
@@ -31,6 +32,12 @@ PSP开播 = on_command(
     priority=5,
 )
 
+# 大乱斗开播：/大乱斗开播
+大乱斗开播 = on_command(
+    "大乱斗开播",
+    block=True,
+    priority=5,
+)
 
 def _to_int(v: Any, default: int = 0) -> int:
     try:
@@ -210,6 +217,48 @@ async def _handle_live_list(*, api_url: str, title: str, user_id: int) -> Messag
 
     return MessageSegment.image(f"base64://{b64}")
 
+async def _handle_live_list_brawl(*, vr_api_url: str, psp_api_url: str, title: str, user_id: int) -> MessageSegment:
+    """
+    /大乱斗开播
+    拉取 VR + PSP 两份列表，合并直播中数据并排序，绘图复用 _render_live_list_image。
+    """
+    logger.info(f"[{title}] user={user_id}")
+
+    try:
+        vr_data, psp_data = await asyncio.gather(
+            _fetch_json_list(vr_api_url),
+            _fetch_json_list(psp_api_url),
+        )
+    except Exception as e:
+        return MessageSegment.text(f"请求数据失败：{e}")
+
+    # 标识来源（不改绘图结构）
+    for d in vr_data:
+        if isinstance(d, dict):
+            d["anchor_name"] = f"{_safe_str(d.get('anchor_name', ''))}"
+    for d in psp_data:
+        if isinstance(d, dict):
+            d["anchor_name"] = f"{_safe_str(d.get('anchor_name', ''))}"
+
+    data_list: List[Dict[str, Any]] = []
+    data_list.extend([d for d in vr_data if isinstance(d, dict)])
+    data_list.extend([d for d in psp_data if isinstance(d, dict)])
+
+    # status == 1 表示直播中
+    live_list = [d for d in data_list if _to_int(d.get("status", 0)) == 1]
+    if not live_list:
+        return MessageSegment.text("当前没有主播正在直播。")
+
+    # live_time 越新越靠前（字符串降序即可）
+    live_list.sort(key=lambda d: _safe_str(d.get("live_time", "")), reverse=True)
+
+    try:
+        b64 = _render_live_list_image(title, live_list)
+    except Exception as e:
+        logger.exception("render_live_list_image failed")
+        return MessageSegment.text(f"生成图片失败：{e}")
+
+    return MessageSegment.image(f"base64://{b64}")
 
 @VR开播.handle()
 async def _(event: MessageEvent):
@@ -229,3 +278,13 @@ async def _(event: MessageEvent):
         user_id=getattr(event, "user_id", 0),
     )
     await PSP开播.finish(seg)
+
+@大乱斗开播.handle()
+async def _(event: MessageEvent):
+    seg = await _handle_live_list_brawl(
+        vr_api_url=cfg.vr_gift_api_base,
+        psp_api_url=cfg.psp_gift_api_base,
+        title="VRPSP大乱斗",
+        user_id=getattr(event, "user_id", 0),
+    )
+    await 大乱斗开播.finish(seg)
