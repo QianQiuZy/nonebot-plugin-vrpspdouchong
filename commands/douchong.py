@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import time
+from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
@@ -88,6 +89,47 @@ def format_duration(hms: str) -> str:
     except Exception:
         pass
     return str(hms)
+
+
+def calc_live_duration_with_live_time(live_duration: Any, live_time: Any, now_ts: Optional[int] = None) -> str:
+    """
+    直播时长计算：now - live_time + live_duration
+    - live_duration: "HH:MM:SS"
+    - live_time: "YYYY-MM-DD HH:MM:SS"
+    失败时回退原始 live_duration 字符串
+    """
+    try:
+        duration_parts = str(live_duration).split(":")
+        if len(duration_parts) != 3:
+            return str(live_duration)
+
+        h, m, s = map(int, duration_parts)
+        base_seconds = h * 3600 + m * 60 + s
+
+        live_dt = datetime.strptime(str(live_time), "%Y-%m-%d %H:%M:%S")
+        live_ts = int(live_dt.timestamp())
+        now_seconds = int(now_ts if now_ts is not None else time.time())
+
+        total_seconds = max(0, now_seconds - live_ts + base_seconds)
+        hh = total_seconds // 3600
+        mm = (total_seconds % 3600) // 60
+        ss = total_seconds % 60
+        return f"{hh:02d}:{mm:02d}:{ss:02d}"
+    except Exception:
+        return str(live_duration)
+
+
+def apply_live_duration_calc(data_list: List[Dict[str, Any]], now_ts: Optional[int] = None) -> None:
+    """批量按 now-live_time+live_duration 更新 live_duration。"""
+    current_ts = int(now_ts if now_ts is not None else time.time())
+    for d in data_list:
+        if not isinstance(d, dict):
+            continue
+        d["live_duration"] = calc_live_duration_with_live_time(
+            d.get("live_duration", "00:00:00"),
+            d.get("live_time", ""),
+            current_ts,
+        )
 
 
 def format_fans(attention: int) -> str:
@@ -294,6 +336,9 @@ async def _handle_douchong(event: MessageEvent, arg: Message, *, api_base: str, 
     if not data_list:
         return MessageSegment.text(f"无数据：{month_code}")
 
+    # /VR斗虫、/PSP斗虫：直播时间按 now-live_time+live_duration 动态计算
+    apply_live_duration_calc(data_list)
+
     try:
         b64 = render_table_image(title, data_list, month_code)
     except Exception as e:
@@ -345,6 +390,9 @@ async def _handle_douchong_brawl(event: MessageEvent, arg: Message):
     data_list = [d for d in (vr_list + psp_list) if isinstance(d, dict)]
     if not data_list:
         return MessageSegment.text(f"无数据：{month_code}")
+
+    # /大乱斗斗虫：VR + PSP 合并后统一按 now-live_time+live_duration 动态计算
+    apply_live_duration_calc(data_list)
 
     try:
         b64 = render_table_image(title, data_list, month_code)
