@@ -186,7 +186,7 @@ def _render_live_list_image(title: str, live_list: List[Dict[str, Any]]) -> str:
 
     # 版权
     pic.set_pos(canvas_width - 220, canvas_height - 40)
-    pic.draw_text_right(0, "Designed by QianQiuZy", Color.GRAY)
+    pic.draw_text_right(0, "Designed by 开发猫", Color.GRAY)
 
     pic.crop_and_paste_bottom()
     return pic.base64()
