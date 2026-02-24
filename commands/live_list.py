@@ -124,7 +124,7 @@ def _render_live_list_image(title: str, live_list: List[Dict[str, Any]]) -> str:
     canvas_height = table_height + 140
 
     pic = PicGenerator(canvas_width, canvas_height)
-    pic.set_pos(0, 0).draw_rounded_rectangle(0, 0, canvas_width, canvas_height, 35, Color.WHITE)
+    pic.set_pos(0, 0).draw_rounded_rectangle(0, 0, canvas_width, canvas_height, 0, Color.WHITE)
 
     # ---------- 标题与时间 ----------
     LEFT_PADDING = 20
@@ -143,7 +143,7 @@ def _render_live_list_image(title: str, live_list: List[Dict[str, Any]]) -> str:
     cur_y = origin_y
 
     # 表头背景
-    pic.draw_rounded_rectangle(origin_x, cur_y, table_width - 40, row_height, 12, Color.DEEPSKYBLUE)
+    pic.draw_rounded_rectangle(origin_x, cur_y, table_width - 40, row_height, 0, Color.DEEPSKYBLUE)
 
     # 表头文字
     cur_x = origin_x + 10

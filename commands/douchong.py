@@ -231,7 +231,7 @@ def render_table_image(title: str, data_list: List[Dict[str, Any]], month_code: 
     canvas_height = table_height + 160
 
     pic = PicGenerator(canvas_width, canvas_height)
-    pic.set_pos(0, 0).draw_rounded_rectangle(0, 0, canvas_width, canvas_height, 35, Color.WHITE)
+    pic.set_pos(0, 0).draw_rounded_rectangle(0, 0, canvas_width, canvas_height, 0, Color.WHITE)
 
     # ---------- 标题与时间 ----------
     LEFT_PADDING = 20
@@ -255,7 +255,7 @@ def render_table_image(title: str, data_list: List[Dict[str, Any]], month_code: 
     cur_y = origin_y
 
     # 表头
-    pic.draw_rounded_rectangle(origin_x, cur_y, table_width - 40, row_height, 12, Color.DEEPSKYBLUE)
+    pic.draw_rounded_rectangle(origin_x, cur_y, table_width - 40, row_height, 0, Color.DEEPSKYBLUE)
     cur_x = origin_x + 10
     for w, h in zip(col_widths, headers):
         pic.set_pos(cur_x, cur_y + 18).draw_text(h, [Color.WHITE])

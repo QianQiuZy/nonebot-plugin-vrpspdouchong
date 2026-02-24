@@ -251,7 +251,7 @@ def render_live_sessions_image(
     canvas_height = header_h + table_height
 
     pic = PicGenerator(canvas_width, canvas_height)
-    pic.set_pos(0, 0).draw_rounded_rectangle(0, 0, canvas_width, canvas_height, 35, Color.WHITE)
+    pic.set_pos(0, 0).draw_rounded_rectangle(0, 0, canvas_width, canvas_height, 0, Color.WHITE)
 
     LEFT = 20
     TITLE_Y = 30
@@ -271,7 +271,7 @@ def render_live_sessions_image(
     cur_y = origin_y
 
     # 表头
-    pic.draw_rounded_rectangle(origin_x, cur_y, table_width - 40, row_height, 12, Color.DEEPSKYBLUE)
+    pic.draw_rounded_rectangle(origin_x, cur_y, table_width - 40, row_height, 0, Color.DEEPSKYBLUE)
     cur_x = origin_x + 10
     for w, h in zip(col_widths, headers):
         pic.set_pos(cur_x, cur_y + 18).draw_text(h, [Color.WHITE])
@@ -502,7 +502,7 @@ def render_sc_images(
         canvas_height = header_h + table_height
 
         pic = PicGenerator(canvas_width, canvas_height)
-        pic.set_pos(0, 0).draw_rounded_rectangle(0, 0, canvas_width, canvas_height, 35, Color.WHITE)
+        pic.set_pos(0, 0).draw_rounded_rectangle(0, 0, canvas_width, canvas_height, 0, Color.WHITE)
 
         LEFT = 20
         TITLE_Y = 30
@@ -523,7 +523,7 @@ def render_sc_images(
         cur_y = origin_y
 
         # 表头
-        pic.draw_rounded_rectangle(origin_x, cur_y, table_width - 40, table_header_h, 12, Color.DEEPSKYBLUE)
+        pic.draw_rounded_rectangle(origin_x, cur_y, table_width - 40, table_header_h, 0, Color.DEEPSKYBLUE)
         cur_x = origin_x + 10
         for w, h in zip(col_widths, headers):
             pic.set_pos(cur_x, cur_y + 18).draw_text(h, [Color.WHITE])
@@ -697,7 +697,7 @@ def render_liushui_card(
     LEFT = 24
 
     pic = PicGenerator(W, H)
-    pic.set_pos(0, 0).draw_rounded_rectangle(0, 0, W, H, 35, Color.WHITE)
+    pic.set_pos(0, 0).draw_rounded_rectangle(0, 0, W, H, 0, Color.WHITE)
 
     y = 24
 
