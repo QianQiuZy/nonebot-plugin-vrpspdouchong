@@ -218,6 +218,25 @@ def _to_int(v: Any, default: int = 0) -> int:
         return default
 
 
+def _duration_to_seconds(hms: Any) -> int:
+    try:
+        parts = str(hms).split(":")
+        if len(parts) != 3:
+            return 0
+        h, m, s = map(int, parts)
+        return max(0, h * 3600 + m * 60 + s)
+    except Exception:
+        return 0
+
+
+def _seconds_to_duration(total_seconds: int) -> str:
+    sec = max(0, int(total_seconds))
+    hh = sec // 3600
+    mm = (sec % 3600) // 60
+    ss = sec % 60
+    return f"{hh:02d}:{mm:02d}:{ss:02d}"
+
+
 # ==========================
 # 3) 通用：HTTP 拉取
 # ==========================
@@ -239,6 +258,7 @@ def merge_monthly_data(all_rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         "effective_days", "guard_1", "guard_2", "guard_3", "fans_count",
         "blind_box_count", "blind_box_profit", "gift", "super_chat", "guard",
     ]
+    int_sum_fields = ["effective_days", "guard_1", "guard_2", "guard_3", "fans_count", "blind_box_count"]
     max_fields = ["attention"]
 
     merged: Dict[str, Dict[str, Any]] = {}
@@ -252,16 +272,34 @@ def merge_monthly_data(all_rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 
         if key not in merged:
             base = dict(row)
+            for f in numeric_sum_fields:
+                base[f] = 0
+            for f in max_fields:
+                base[f] = 0
             base["status"] = 0
+            base["live_duration_seconds"] = 0
             base["live_duration"] = "00:00:00"
+            base["live_time"] = "0000-00-00 00:00:00"
             merged[key] = base
+
         target = merged[key]
 
         for f in numeric_sum_fields:
             target[f] = _to_float(target.get(f, 0)) + _to_float(row.get(f, 0))
 
+        for f in int_sum_fields:
+            target[f] = _to_int(round(_to_float(target.get(f, 0))))
+
         for f in max_fields:
             target[f] = max(_to_int(target.get(f, 0)), _to_int(row.get(f, 0)))
+
+        target["live_duration_seconds"] = _to_int(target.get("live_duration_seconds", 0)) + _duration_to_seconds(
+            row.get("live_duration", "00:00:00")
+        )
+        target["live_duration"] = _seconds_to_duration(target["live_duration_seconds"])
+
+    for v in merged.values():
+        v.pop("live_duration_seconds", None)
 
     return list(merged.values())
 
@@ -429,8 +467,9 @@ async def _handle_douchong(event: MessageEvent, arg: Message, *, api_base: str, 
     if not data_list:
         return MessageSegment.text(f"无数据：{period_display}")
 
-    # /VR斗虫、/PSP斗虫：直播时间按 now-live_time+live_duration 动态计算
-    apply_live_duration_calc(data_list)
+    # 单月按 now-live_time+live_duration 动态计算；多月累计保留聚合时长
+    if len(month_codes) == 1:
+        apply_live_duration_calc(data_list)
 
     try:
         b64 = render_table_image(title, data_list, period_display)
@@ -483,8 +522,9 @@ async def _handle_douchong_brawl(event: MessageEvent, arg: Message):
     if not data_list:
         return MessageSegment.text(f"无数据：{period_display}")
 
-    # /大乱斗斗虫：VR + PSP 合并后统一按 now-live_time+live_duration 动态计算
-    apply_live_duration_calc(data_list)
+    # 单月按 now-live_time+live_duration 动态计算；多月累计保留聚合时长
+    if len(month_codes) == 1:
+        apply_live_duration_calc(data_list)
 
     try:
         b64 = render_table_image(title, data_list, period_display)
