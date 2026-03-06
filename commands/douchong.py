@@ -43,6 +43,7 @@ PSP斗虫 = on_command(
 
 _MONTH_RE_1 = re.compile(r"^(\d{4})(\d{2})$")
 _MONTH_RE_2 = re.compile(r"^(\d{4})-(\d{2})$")
+_YEAR_RE = re.compile(r"^(\d{4})$")
 
 
 # ==========================
@@ -76,6 +77,54 @@ def normalize_month_arg(raw: str) -> Optional[str]:
     except Exception:
         return None
     return None
+
+
+def build_year_month_codes(year: int, now_dt: Optional[datetime] = None) -> Optional[List[str]]:
+    """
+    年流水取数规则：
+    - 目标年 < 当前年：拉取 1~12 月
+    - 目标年 == 当前年：拉取 1~当前月
+    - 目标年 > 当前年：非法
+    """
+    current = now_dt or datetime.now()
+    current_year = current.year
+    current_month = current.month
+
+    if year > current_year:
+        return None
+
+    end_month = current_month if year == current_year else 12
+    return [f"{year}{m:02d}" for m in range(1, end_month + 1)]
+
+
+def normalize_period_arg(raw: str) -> Optional[Tuple[List[str], str]]:
+    """
+    规范化统计周期参数：
+    - 为空：当前月
+    - YYYYMM 或 YYYY-MM：单月
+    - YYYY：年累计（当年按 1~当前月，历史年按 1~12 月）
+    返回: (month_codes, display_text)
+    """
+    text = (raw or "").strip()
+    if not text:
+        month_code = current_month_code()
+        return [month_code], f"{month_code[:4]}-{month_code[4:]}"
+
+    month_code = normalize_month_arg(text)
+    if month_code:
+        return [month_code], f"{month_code[:4]}-{month_code[4:]}"
+
+    y = _YEAR_RE.fullmatch(text)
+    if not y:
+        return None
+
+    year = int(y.group(1))
+    month_codes = build_year_month_codes(year)
+    if not month_codes:
+        return None
+
+    end_month = int(month_codes[-1][4:])
+    return month_codes, f"{year}年 1-{end_month}月累计"
 
 
 def format_duration(hms: str) -> str:
@@ -169,6 +218,25 @@ def _to_int(v: Any, default: int = 0) -> int:
         return default
 
 
+def _duration_to_seconds(hms: Any) -> int:
+    try:
+        parts = str(hms).split(":")
+        if len(parts) != 3:
+            return 0
+        h, m, s = map(int, parts)
+        return max(0, h * 3600 + m * 60 + s)
+    except Exception:
+        return 0
+
+
+def _seconds_to_duration(total_seconds: int) -> str:
+    sec = max(0, int(total_seconds))
+    hh = sec // 3600
+    mm = (sec % 3600) // 60
+    ss = sec % 60
+    return f"{hh:02d}:{mm:02d}:{ss:02d}"
+
+
 # ==========================
 # 3) 通用：HTTP 拉取
 # ==========================
@@ -184,10 +252,74 @@ async def fetch_month_data(api_base: str, month_code: str) -> List[Dict[str, Any
     return [d for d in data if isinstance(d, dict)]
 
 
+def merge_monthly_data(all_rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """按 room_id（缺失时退化到 anchor_name）聚合多月数据。"""
+    numeric_sum_fields = [
+        "effective_days", "guard_1", "guard_2", "guard_3", "fans_count",
+        "blind_box_count", "blind_box_profit", "gift", "super_chat", "guard",
+    ]
+    int_sum_fields = ["effective_days", "guard_1", "guard_2", "guard_3", "fans_count", "blind_box_count"]
+    max_fields = ["attention"]
+
+    merged: Dict[str, Dict[str, Any]] = {}
+    for row in all_rows:
+        if not isinstance(row, dict):
+            continue
+
+        key = str(row.get("room_id") or row.get("anchor_name") or "")
+        if not key:
+            continue
+
+        if key not in merged:
+            base = dict(row)
+            for f in numeric_sum_fields:
+                base[f] = 0
+            for f in max_fields:
+                base[f] = 0
+            base["status"] = 0
+            base["live_duration_seconds"] = 0
+            base["live_duration"] = "00:00:00"
+            base["live_time"] = "0000-00-00 00:00:00"
+            merged[key] = base
+
+        target = merged[key]
+
+        for f in numeric_sum_fields:
+            target[f] = _to_float(target.get(f, 0)) + _to_float(row.get(f, 0))
+
+        for f in int_sum_fields:
+            target[f] = _to_int(round(_to_float(target.get(f, 0))))
+
+        for f in max_fields:
+            target[f] = max(_to_int(target.get(f, 0)), _to_int(row.get(f, 0)))
+
+        target["live_duration_seconds"] = _to_int(target.get("live_duration_seconds", 0)) + _duration_to_seconds(
+            row.get("live_duration", "00:00:00")
+        )
+        target["live_duration"] = _seconds_to_duration(target["live_duration_seconds"])
+
+    for v in merged.values():
+        v.pop("live_duration_seconds", None)
+
+    return list(merged.values())
+
+
+async def fetch_period_data(api_base: str, month_codes: List[str]) -> List[Dict[str, Any]]:
+    """单月直出；多月聚合。"""
+    if len(month_codes) == 1:
+        return await fetch_month_data(api_base, month_codes[0])
+
+    all_rows: List[Dict[str, Any]] = []
+    for month_code in month_codes:
+        month_rows = await fetch_month_data(api_base, month_code)
+        all_rows.extend(month_rows)
+    return merge_monthly_data(all_rows)
+
+
 # ==========================
 # 4) 通用：绘图（完全一致）
 # ==========================
-def render_table_image(title: str, data_list: List[Dict[str, Any]], month_code: str) -> str:
+def render_table_image(title: str, data_list: List[Dict[str, Any]], period_display: str) -> str:
     # ---------- 预处理：计算总计、格式化、排序 ----------
     for d in data_list:
         gift = _to_float(d.get("gift", 0))
@@ -246,8 +378,7 @@ def render_table_image(title: str, data_list: List[Dict[str, Any]], month_code: 
 
     pic.set_pos(LEFT_PADDING + TIP_X_OFFSET, TIME_Y).draw_text("数据为每月1号开始统计，月底清零。", [Color.GRAY])
 
-    month_disp = f"{month_code[:4]}-{month_code[4:]}"
-    pic.set_pos(LEFT_PADDING, MONTH_Y).draw_text(f"统计月份：{month_disp}", [Color.GRAY])
+    pic.set_pos(LEFT_PADDING, MONTH_Y).draw_text(f"统计周期：{period_display}", [Color.GRAY])
 
     # ---------- 表格绘制 ----------
     origin_x = 20
@@ -317,30 +448,31 @@ async def _handle_douchong(event: MessageEvent, arg: Message, *, api_base: str, 
     except Exception:
         raw = str(arg).strip()
 
-    if raw:
-        month_code = normalize_month_arg(raw)
-        if not month_code:
-            return MessageSegment.text(
-                "月份格式不正确，请使用 YYYYMM 或 YYYY-MM，例如：202509 或 2025-09"
-            )
-    else:
-        month_code = current_month_code()
+    period = normalize_period_arg(raw)
+    if not period:
+        return MessageSegment.text(
+            "参数格式不正确，请使用 YYYY、YYYYMM 或 YYYY-MM，例如：2026、202509 或 2025-09"
+        )
+    month_codes, period_display = period
 
-    logger.info(f"[{title}] month={month_code} user={getattr(event, 'user_id', None)}")
+    logger.info(
+        f"[{title}] period={','.join(month_codes)} user={getattr(event, 'user_id', None)}"
+    )
 
     try:
-        data_list = await fetch_month_data(api_base, month_code)
+        data_list = await fetch_period_data(api_base, month_codes)
     except Exception as e:
         return MessageSegment.text(f"请求数据失败：{e}")
 
     if not data_list:
-        return MessageSegment.text(f"无数据：{month_code}")
+        return MessageSegment.text(f"无数据：{period_display}")
 
-    # /VR斗虫、/PSP斗虫：直播时间按 now-live_time+live_duration 动态计算
-    apply_live_duration_calc(data_list)
+    # 单月按 now-live_time+live_duration 动态计算；多月累计保留聚合时长
+    if len(month_codes) == 1:
+        apply_live_duration_calc(data_list)
 
     try:
-        b64 = render_table_image(title, data_list, month_code)
+        b64 = render_table_image(title, data_list, period_display)
     except Exception as e:
         logger.exception("render_table_image failed")
         return MessageSegment.text(f"生成图片失败：{e}")
@@ -358,24 +490,23 @@ async def _handle_douchong_brawl(event: MessageEvent, arg: Message):
     except Exception:
         raw = str(arg).strip()
 
-    if raw:
-        month_code = normalize_month_arg(raw)
-        if not month_code:
-            # 按你的需求强调 YYYYMM，同时兼容 YYYY-MM（normalize_month_arg 已支持）
-            return MessageSegment.text("月份格式不正确，请使用 YYYYMM，例如：202601")
-    else:
-        month_code = current_month_code()
+    period = normalize_period_arg(raw)
+    if not period:
+        return MessageSegment.text(
+            "参数格式不正确，请使用 YYYY、YYYYMM 或 YYYY-MM，例如：2026、202601 或 2026-01"
+        )
+    month_codes, period_display = period
 
     title = "VRPSP大乱斗"
-    logger.info(f"[{title}] month={month_code} user={getattr(event, 'user_id', None)}")
+    logger.info(f"[{title}] period={','.join(month_codes)} user={getattr(event, 'user_id', None)}")
 
     try:
-        vr_list = await fetch_month_data(cfg.vr_gift_api_base, month_code)
+        vr_list = await fetch_period_data(cfg.vr_gift_api_base, month_codes)
     except Exception as e:
         return MessageSegment.text(f"请求 VR 数据失败：{e}")
 
     try:
-        psp_list = await fetch_month_data(cfg.psp_gift_api_base, month_code)
+        psp_list = await fetch_period_data(cfg.psp_gift_api_base, month_codes)
     except Exception as e:
         return MessageSegment.text(f"请求 PSP 数据失败：{e}")
 
@@ -389,13 +520,14 @@ async def _handle_douchong_brawl(event: MessageEvent, arg: Message):
 
     data_list = [d for d in (vr_list + psp_list) if isinstance(d, dict)]
     if not data_list:
-        return MessageSegment.text(f"无数据：{month_code}")
+        return MessageSegment.text(f"无数据：{period_display}")
 
-    # /大乱斗斗虫：VR + PSP 合并后统一按 now-live_time+live_duration 动态计算
-    apply_live_duration_calc(data_list)
+    # 单月按 now-live_time+live_duration 动态计算；多月累计保留聚合时长
+    if len(month_codes) == 1:
+        apply_live_duration_calc(data_list)
 
     try:
-        b64 = render_table_image(title, data_list, month_code)
+        b64 = render_table_image(title, data_list, period_display)
     except Exception as e:
         logger.exception("render_table_image failed")
         return MessageSegment.text(f"生成图片失败：{e}")
