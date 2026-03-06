@@ -252,7 +252,7 @@ async def fetch_month_data(api_base: str, month_code: str) -> List[Dict[str, Any
     return [d for d in data if isinstance(d, dict)]
 
 
-def merge_monthly_data(all_rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def merge_monthly_data(all_rows: List[Dict[str, Any]], *, include_live_status: bool = False) -> List[Dict[str, Any]]:
     """按 room_id（缺失时退化到 anchor_name）聚合多月数据。"""
     numeric_sum_fields = [
         "effective_days", "guard_1", "guard_2", "guard_3", "fans_count",
@@ -298,10 +298,21 @@ def merge_monthly_data(all_rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         )
         target["live_duration"] = _seconds_to_duration(target["live_duration_seconds"])
 
+        if include_live_status and _to_int(row.get("status", 0)) == 1:
+            target["status"] = 1
+            target["live_time"] = str(row.get("live_time") or target.get("live_time") or "0000-00-00 00:00:00")
+
     for v in merged.values():
         v.pop("live_duration_seconds", None)
 
     return list(merged.values())
+
+
+def _is_current_year_period(month_codes: List[str]) -> bool:
+    if not month_codes:
+        return False
+    current_year = datetime.now().year
+    return all(_to_int(code[:4], 0) == current_year for code in month_codes)
 
 
 async def fetch_period_data(api_base: str, month_codes: List[str]) -> List[Dict[str, Any]]:
@@ -313,7 +324,9 @@ async def fetch_period_data(api_base: str, month_codes: List[str]) -> List[Dict[
     for month_code in month_codes:
         month_rows = await fetch_month_data(api_base, month_code)
         all_rows.extend(month_rows)
-    return merge_monthly_data(all_rows)
+
+    include_live_status = _is_current_year_period(month_codes)
+    return merge_monthly_data(all_rows, include_live_status=include_live_status)
 
 
 # ==========================
@@ -467,8 +480,8 @@ async def _handle_douchong(event: MessageEvent, arg: Message, *, api_base: str, 
     if not data_list:
         return MessageSegment.text(f"无数据：{period_display}")
 
-    # 单月按 now-live_time+live_duration 动态计算；多月累计保留聚合时长
-    if len(month_codes) == 1:
+    # 单月保持动态时长；当年累计额外保留直播状态并动态增量时长
+    if len(month_codes) == 1 or _is_current_year_period(month_codes):
         apply_live_duration_calc(data_list)
 
     try:
@@ -522,8 +535,8 @@ async def _handle_douchong_brawl(event: MessageEvent, arg: Message):
     if not data_list:
         return MessageSegment.text(f"无数据：{period_display}")
 
-    # 单月按 now-live_time+live_duration 动态计算；多月累计保留聚合时长
-    if len(month_codes) == 1:
+    # 单月保持动态时长；当年累计额外保留直播状态并动态增量时长
+    if len(month_codes) == 1 or _is_current_year_period(month_codes):
         apply_live_duration_calc(data_list)
 
     try:
