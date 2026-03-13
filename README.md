@@ -59,7 +59,7 @@ pip install httpx pillow fonttools regex
 
 ## 配置项
 
-插件配置定义见 [config.py](https://github.com/qianqiuzy/nonebot-plugin-vrpspdouchong/config.py)。
+插件配置定义见 [config.py](https://github.com/QianQiuZy/nonebot-plugin-vrpspdouchong/blob/main/config.py)。
 
 可用配置如下：
 
@@ -242,4 +242,4 @@ nonebot-plugin-vrpspdouchong/
 
 ## 开源协议
 
-本项目使用 [MIT License](https://github.com/qianqiuzy/nonebot-plugin-vrpspdouchong/LICENSE)。
+本项目使用 [MIT License](https://github.com/QianQiuZy/nonebot-plugin-vrpspdouchong/blob/main/LICENSE)。
