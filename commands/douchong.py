@@ -237,6 +237,14 @@ def _seconds_to_duration(total_seconds: int) -> str:
     return f"{hh:02d}:{mm:02d}:{ss:02d}"
 
 
+def build_query_source_text(event: MessageEvent) -> str:
+    group_id = getattr(event, "group_id", None)
+    user_id = getattr(event, "user_id", None)
+    group_text = str(group_id) if group_id is not None else "未知群"
+    user_text = str(user_id) if user_id is not None else "未知用户"
+    return f"由群{group_text}中{user_text}查询"
+
+
 # ==========================
 # 3) 通用：HTTP 拉取
 # ==========================
@@ -332,7 +340,12 @@ async def fetch_period_data(api_base: str, month_codes: List[str]) -> List[Dict[
 # ==========================
 # 4) 通用：绘图（完全一致）
 # ==========================
-def render_table_image(title: str, data_list: List[Dict[str, Any]], period_display: str) -> str:
+def render_table_image(
+    title: str,
+    data_list: List[Dict[str, Any]],
+    period_display: str,
+    query_source_text: str,
+) -> str:
     # ---------- 预处理：计算总计、格式化、排序 ----------
     for d in data_list:
         gift = _to_float(d.get("gift", 0))
@@ -389,7 +402,10 @@ def render_table_image(title: str, data_list: List[Dict[str, Any]], period_displ
     now_str = timestamp_format(int(time.time()), "%Y-%m-%d %H:%M:%S")
     pic.set_pos(LEFT_PADDING, TIME_Y).draw_text(now_str, [Color.GRAY])
 
-    pic.set_pos(LEFT_PADDING + TIP_X_OFFSET, TIME_Y).draw_text("数据为每月1号开始统计，月底清零。", [Color.GRAY])
+    pic.set_pos(LEFT_PADDING + TIP_X_OFFSET, TIME_Y).draw_text(
+        ["数据为每月1号开始统计，月底清零。  ", query_source_text],
+        [Color.GRAY, Color.GRAY],
+    )
 
     pic.set_pos(LEFT_PADDING, MONTH_Y).draw_text(f"统计周期：{period_display}", [Color.GRAY])
 
@@ -467,6 +483,7 @@ async def _handle_douchong(event: MessageEvent, arg: Message, *, api_base: str, 
             "参数格式不正确，请使用 YYYY、YYYYMM 或 YYYY-MM，例如：2026、202509 或 2025-09"
         )
     month_codes, period_display = period
+    query_source_text = build_query_source_text(event)
 
     logger.info(
         f"[{title}] period={','.join(month_codes)} user={getattr(event, 'user_id', None)}"
@@ -485,7 +502,7 @@ async def _handle_douchong(event: MessageEvent, arg: Message, *, api_base: str, 
         apply_live_duration_calc(data_list)
 
     try:
-        b64 = render_table_image(title, data_list, period_display)
+        b64 = render_table_image(title, data_list, period_display, query_source_text)
     except Exception as e:
         logger.exception("render_table_image failed")
         return MessageSegment.text(f"生成图片失败：{e}")
@@ -509,6 +526,7 @@ async def _handle_douchong_brawl(event: MessageEvent, arg: Message):
             "参数格式不正确，请使用 YYYY、YYYYMM 或 YYYY-MM，例如：2026、202601 或 2026-01"
         )
     month_codes, period_display = period
+    query_source_text = build_query_source_text(event)
 
     title = "VRPSP大乱斗"
     logger.info(f"[{title}] period={','.join(month_codes)} user={getattr(event, 'user_id', None)}")
@@ -540,7 +558,7 @@ async def _handle_douchong_brawl(event: MessageEvent, arg: Message):
         apply_live_duration_calc(data_list)
 
     try:
-        b64 = render_table_image(title, data_list, period_display)
+        b64 = render_table_image(title, data_list, period_display, query_source_text)
     except Exception as e:
         logger.exception("render_table_image failed")
         return MessageSegment.text(f"生成图片失败：{e}")

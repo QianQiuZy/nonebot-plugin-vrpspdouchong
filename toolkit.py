@@ -180,6 +180,58 @@ def _load_best_cmap(font_path: str, ttc_index: int = 0) -> Dict[int, str]:
     return tt["cmap"].getBestCmap() or {}
 
 
+def _resolve_text_fallback_font_paths(
+    base: Path,
+    normal_path: Path,
+    emoji_path: Path,
+    text_fallback_fonts: Optional[List[str]],
+) -> List[Path]:
+    """
+    解析正文回退字体路径。
+    - 未显式指定时：自动扫描 resource 下全部 .ttf，并排除 emoji 字体
+    - 显式指定时：仍按传入顺序处理，但会排除 emoji 字体
+    """
+    if text_fallback_fonts is None:
+        font_paths = sorted(
+            (
+                path
+                for path in base.rglob("*")
+                if path.is_file() and path.suffix.lower() == ".ttf" and path != emoji_path
+            ),
+            key=lambda path: path.relative_to(base).as_posix().lower(),
+        )
+        if normal_path in font_paths:
+            font_paths.remove(normal_path)
+            font_paths.insert(0, normal_path)
+        return font_paths
+
+    missing: List[str] = []
+    font_paths: List[Path] = []
+    seen = set()
+
+    for font_name in text_fallback_fonts:
+        path = base / font_name
+        if not path.exists():
+            missing.append(str(path))
+            continue
+        if path == emoji_path:
+            continue
+
+        resolved = str(path.resolve())
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        font_paths.append(path)
+
+    if missing:
+        raise FileNotFoundError(
+            "正文回退字体缺失（请将字体放入 resource/，或传入 text_fallback_fonts 指定正确文件名）：\n"
+            + "\n".join(missing)
+        )
+
+    return font_paths
+
+
 class PicGenerator:
     """
     基于 Pillow 的绘图器（裁剪版）
@@ -196,7 +248,7 @@ class PicGenerator:
         normal_font: str = "NotoSansSC.ttf",
         bold_font: str = "NotoSansSC.ttf",
         emoji_font: str = "NotoEmoji.ttf",
-        # ✅ 方案A：非 emoji 文本字体回退链（按顺序）
+        # 非 emoji 文本字体回退链；不传时自动扫描 resource 下全部 .ttf
         text_fallback_fonts: Optional[List[str]] = None,
         auto_size_margin: int = 10,
     ):
@@ -220,15 +272,12 @@ class PicGenerator:
                 f"字体文件缺失：normal={normal_path} bold={bold_path}；请将字体放入 resource/ 或传入 resource_dir"
             )
 
-        # ✅ 默认启用方案 A 的推荐链路（你把字体按推荐命名放好即可）
-        if text_fallback_fonts is None:
-            text_fallback_fonts = [
-                normal_font,
-                "NotoSans.ttf",
-                "NotoSansSymbols2.ttf",
-                "NotoSansYi.ttf",
-                "NotoSerifTibetan.ttf",
-            ]
+        text_font_paths = _resolve_text_fallback_font_paths(
+            base=base,
+            normal_path=normal_path,
+            emoji_path=emoji_path,
+            text_fallback_fonts=text_fallback_fonts,
+        )
 
         # ---------- 加载 emoji / 标题字体 ----------
         self.__emoji_font = ImageFont.truetype(str(emoji_path), 30)
@@ -239,25 +288,17 @@ class PicGenerator:
         self.__tip_font = ImageFont.truetype(str(normal_path), 25)
 
         # ---------- 方案 A：构建“非 emoji”字体回退链（size=30） ----------
-        missing: List[str] = []
         self.__text_fonts: List[ImageFont.FreeTypeFont] = []
         self.__text_cmaps: List[Dict[int, str]] = []
 
-        for fname in text_fallback_fonts:
-            p = base / fname
-            if not p.exists():
-                missing.append(str(p))
-                continue
-            # PIL font
-            f30 = ImageFont.truetype(str(p), 30)
+        for font_path in text_font_paths:
+            f30 = ImageFont.truetype(str(font_path), 30)
             self.__text_fonts.append(f30)
-            # cmap for coverage detection
-            self.__text_cmaps.append(_load_best_cmap(str(p)))
+            self.__text_cmaps.append(_load_best_cmap(str(font_path)))
 
-        if missing:
+        if not self.__text_fonts:
             raise FileNotFoundError(
-                "方案A所需的回退字体缺失（请下载并放入 resource/，或传入 text_fallback_fonts 指定文件名）：\n"
-                + "\n".join(missing)
+                f"未找到可用于正文回退的 ttf 字体：{base}（emoji 字体 {emoji_path.name} 已单独处理）"
             )
 
         # 兼容旧字段命名：__text_font 仍存在，指向主字体（链路第一个）
