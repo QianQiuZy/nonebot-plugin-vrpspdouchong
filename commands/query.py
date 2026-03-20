@@ -140,6 +140,14 @@ def _sec_to_hms(total_seconds: int) -> str:
     return f"{h:02d}:{m:02d}:{s:02d}"
 
 
+def build_query_source_text(event: MessageEvent) -> str:
+    group_id = getattr(event, "group_id", None)
+    user_id = getattr(event, "user_id", None)
+    group_text = str(group_id) if group_id is not None else "未知群"
+    user_text = str(user_id) if user_id is not None else "未知用户"
+    return f"由群{group_text}中{user_text}查询"
+
+
 # ========================= ① 查直播：查询函数 =========================
 async def query_live_sessions(*, base: str, room_id: str, month_code: str) -> List[Dict[str, Any]]:
     url = f"{base}/live_sessions?room_id={room_id}&month={month_code}"
@@ -157,6 +165,7 @@ def render_live_sessions_image(
     room_id: str,
     month_code: str,
     sessions: List[Dict[str, Any]],
+    query_source_text: str,
 ) -> str:
     now = datetime.datetime.now()
 
@@ -260,7 +269,10 @@ def render_live_sessions_image(
 
     month_label = "本月" if month_code == current_month_code() else f"{month_code}月"
     pic.set_pos(LEFT, TITLE_Y).draw_text(f"{anchor_name}{month_label}直播情况", [Color.BLACK])
-    pic.set_pos(LEFT, ROOM_Y).draw_text(f"房间号：{room_id}", [Color.GRAY])
+    pic.set_pos(LEFT, ROOM_Y).draw_text(
+        [f"房间号：{room_id}  ", query_source_text],
+        [Color.GRAY, Color.GRAY],
+    )
     pic.set_pos(LEFT, TIME_Y).draw_text(
         f"查询时间：{timestamp_format(int(time.time()), '%Y-%m-%d %H:%M:%S')}",
         [Color.GRAY],
@@ -357,7 +369,7 @@ async def query_sc_list(*, base: str, room_id: str, month_code: str) -> List[Dic
 
 
 # ========================= ④ 查SC：渲染函数（分页多图） =========================
-SC_MAX_PAGE_HEIGHT = 16000
+SC_MAX_PAGE_HEIGHT = 4000
 BASE_ROW_H = 60
 EXTRA_PER_LINE = 28
 MSG_MAX_CHARS_PER_LINE = 20
@@ -445,6 +457,7 @@ def render_sc_images(
     room_id: str,
     month_code: str,
     sc_list: List[Dict[str, Any]],
+    query_source_text: str,
 ) -> List[str]:
     # 列设置
     col_widths = [350, 350, 300, 100, 700]
@@ -512,7 +525,10 @@ def render_sc_images(
         month_disp = f"{month_code[:4]}-{month_code[4:]}" if len(month_code) == 6 else month_code
         title_text = f"{anchor_name} {month_disp} SC 记录（{page_no}/{total_pages}）"
         pic.set_pos(LEFT, TITLE_Y).draw_text(title_text, [Color.BLACK])
-        pic.set_pos(LEFT, ROOM_Y).draw_text(f"房间号：{room_id}", [Color.GRAY])
+        pic.set_pos(LEFT, ROOM_Y).draw_text(
+            [f"房间号：{room_id}  ", query_source_text],
+            [Color.GRAY, Color.GRAY],
+        )
 
         now_str = timestamp_format(int(time.time()), "%Y-%m-%d %H:%M:%S")
         count_str = f"共 {len(rows)} 条" if rows else "暂无记录"
@@ -674,6 +690,7 @@ def render_liushui_card(
     *,
     month_code: str,
     anchor: str,
+    query_source_text: str,
     room_id: Any,
     attention: Any,
     live_duration: str,
@@ -702,7 +719,7 @@ def render_liushui_card(
     y = 24
 
     # 标题
-    pic.set_pos(LEFT, y).draw_text(f"{anchor} · 流水概览", Color.BLACK)
+    pic.set_pos(LEFT, y).draw_text([f"{anchor}  ", query_source_text], [Color.BLACK, Color.GRAY])
     y += 52
     pic.set_pos(LEFT, y).draw_text(f"统计月份：{month_disp}（{month_label}）", Color.GRAY)
     y += 42
@@ -752,6 +769,7 @@ async def _(bot: Bot, event: MessageEvent, arg: Message = CommandArg()):
     anchor_kw, month_code = _parse_anchor_and_month(str(arg))
     if not anchor_kw:
         await 查直播.finish(MessageSegment.text("用法：/查直播 主播名称 [YYYYMM|YYYY-MM]"))
+    query_source_text = build_query_source_text(event)
 
     logger.info(f"[查直播] kw={anchor_kw} month={month_code} user={getattr(event, 'user_id', 0)}")
 
@@ -769,7 +787,13 @@ async def _(bot: Bot, event: MessageEvent, arg: Message = CommandArg()):
     except Exception as e:
         await 查直播.finish(MessageSegment.text(f"未能获取直播场次：{e}"))
 
-    b64 = render_live_sessions_image(anchor_name=anchor_name, room_id=room_id, month_code=month_code, sessions=sessions)
+    b64 = render_live_sessions_image(
+        anchor_name=anchor_name,
+        room_id=room_id,
+        month_code=month_code,
+        sessions=sessions,
+        query_source_text=query_source_text,
+    )
     await 查直播.finish(MessageSegment.image(f"base64://{b64}"))
 
 
@@ -778,6 +802,7 @@ async def _(bot: Bot, event: MessageEvent, arg: Message = CommandArg()):
     anchor_kw, month_code = _parse_anchor_and_month(str(arg))
     if not anchor_kw:
         await 查SC.finish(MessageSegment.text("用法：/查SC 主播名称 [YYYYMM|YYYY-MM]"))
+    query_source_text = build_query_source_text(event)
 
     logger.info(f"[查SC] kw={anchor_kw} month={month_code} user={getattr(event, 'user_id', 0)}")
 
@@ -795,7 +820,13 @@ async def _(bot: Bot, event: MessageEvent, arg: Message = CommandArg()):
     except Exception as e:
         await 查SC.finish(MessageSegment.text(f"未能获取 SC 记录：{e}"))
 
-    images = render_sc_images(anchor_name=anchor_name, room_id=room_id, month_code=month_code, sc_list=sc_list)
+    images = render_sc_images(
+        anchor_name=anchor_name,
+        room_id=room_id,
+        month_code=month_code,
+        sc_list=sc_list,
+        query_source_text=query_source_text,
+    )
 
     # 关键改动：多图 => 合并转发；单图 => 直接发图
     if len(images) <= 1:
@@ -812,6 +843,7 @@ async def _(bot: Bot, event: GroupMessageEvent | PrivateMessageEvent, arg: Messa
     anchor_kw, month_code = _parse_anchor_and_month(str(arg))
     if not anchor_kw:
         await 查流水.finish(MessageSegment.text("用法：/查流水 主播名称 [YYYYMM|YYYY-MM]"))
+    query_source_text = build_query_source_text(event)
 
     # 拉取 VR+PSP 按月合并
     data_list = await fetch_all_data_by_month(month_code)
@@ -825,6 +857,7 @@ async def _(bot: Bot, event: GroupMessageEvent | PrivateMessageEvent, arg: Messa
     b64 = render_liushui_card(
         month_code=month_code,
         anchor=str(match.get("anchor_name") or anchor_kw),
+        query_source_text=query_source_text,
         room_id=match.get("room_id", 0),
         attention=match.get("attention", 0),
         live_duration=str(match.get("live_duration") or "00:00:00"),

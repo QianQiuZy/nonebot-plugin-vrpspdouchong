@@ -50,6 +50,14 @@ def _safe_str(v: Any) -> str:
     return "" if v is None else str(v)
 
 
+def build_query_source_text(event: MessageEvent) -> str:
+    group_id = getattr(event, "group_id", None)
+    user_id = getattr(event, "user_id", None)
+    group_text = str(group_id) if group_id is not None else "未知群"
+    user_text = str(user_id) if user_id is not None else "未知用户"
+    return f"由群{group_text}中{user_text}查询"
+
+
 def _calc_live_duration_hms(live_time_str: str) -> str:
     """
     live_time: "YYYY-MM-DD HH:MM:SS"
@@ -107,7 +115,7 @@ async def _fetch_json_list(url: str) -> List[Dict[str, Any]]:
     return [d for d in data if isinstance(d, dict)]
 
 
-def _render_live_list_image(title: str, live_list: List[Dict[str, Any]]) -> str:
+def _render_live_list_image(title: str, live_list: List[Dict[str, Any]], query_source_text: str) -> str:
     """
     表头：title + 当前时间
     列：开播时间、主播名称、已开播时长、即时同接、直播标题
@@ -135,7 +143,10 @@ def _render_live_list_image(title: str, live_list: List[Dict[str, Any]]) -> str:
     pic.set_pos(LEFT_PADDING, TITLE_Y).draw_text(title, [Color.BLACK])
     now_str = timestamp_format(int(time.time()), "%Y-%m-%d %H:%M:%S")
     pic.set_pos(LEFT_PADDING, TIME_Y).draw_text(now_str, [Color.GRAY])
-    pic.set_pos(LEFT_PADDING + TIP_X_OFFSET, TIME_Y).draw_text("仅列出当前正在直播的房间", [Color.GRAY])
+    pic.set_pos(LEFT_PADDING + TIP_X_OFFSET, TIME_Y).draw_text(
+        ["仅列出当前正在直播的房间  ", query_source_text],
+        [Color.GRAY, Color.GRAY],
+    )
 
     # ---------- 表格绘制 ----------
     origin_x = 20
@@ -192,7 +203,7 @@ def _render_live_list_image(title: str, live_list: List[Dict[str, Any]]) -> str:
     return pic.base64()
 
 
-async def _handle_live_list(*, api_url: str, title: str, user_id: int) -> MessageSegment:
+async def _handle_live_list(*, api_url: str, title: str, user_id: int, query_source_text: str) -> MessageSegment:
     logger.info(f"[{title}] user={user_id}")
 
     try:
@@ -210,14 +221,21 @@ async def _handle_live_list(*, api_url: str, title: str, user_id: int) -> Messag
     live_list.sort(key=lambda d: _safe_str(d.get("live_time", "")), reverse=True)
 
     try:
-        b64 = _render_live_list_image(title, live_list)
+        b64 = _render_live_list_image(title, live_list, query_source_text)
     except Exception as e:
         logger.exception("render_live_list_image failed")
         return MessageSegment.text(f"生成图片失败：{e}")
 
     return MessageSegment.image(f"base64://{b64}")
 
-async def _handle_live_list_brawl(*, vr_api_url: str, psp_api_url: str, title: str, user_id: int) -> MessageSegment:
+async def _handle_live_list_brawl(
+    *,
+    vr_api_url: str,
+    psp_api_url: str,
+    title: str,
+    user_id: int,
+    query_source_text: str,
+) -> MessageSegment:
     """
     /大乱斗开播
     拉取 VR + PSP 两份列表，合并直播中数据并排序，绘图复用 _render_live_list_image。
@@ -253,7 +271,7 @@ async def _handle_live_list_brawl(*, vr_api_url: str, psp_api_url: str, title: s
     live_list.sort(key=lambda d: _safe_str(d.get("live_time", "")), reverse=True)
 
     try:
-        b64 = _render_live_list_image(title, live_list)
+        b64 = _render_live_list_image(title, live_list, query_source_text)
     except Exception as e:
         logger.exception("render_live_list_image failed")
         return MessageSegment.text(f"生成图片失败：{e}")
@@ -266,6 +284,7 @@ async def _(event: MessageEvent):
         api_url=cfg.vr_gift_api_base,   # 直接请求 /gift（该值本身就是 https://vr.qianqiuzy.cn/gift）
         title=cfg.vr_live_title,
         user_id=getattr(event, "user_id", 0),
+        query_source_text=build_query_source_text(event),
     )
     await VR开播.finish(seg)
 
@@ -276,6 +295,7 @@ async def _(event: MessageEvent):
         api_url=cfg.psp_gift_api_base,  # https://psp.qianqiuzy.cn/gift
         title=cfg.psp_live_title,
         user_id=getattr(event, "user_id", 0),
+        query_source_text=build_query_source_text(event),
     )
     await PSP开播.finish(seg)
 
@@ -286,5 +306,6 @@ async def _(event: MessageEvent):
         psp_api_url=cfg.psp_gift_api_base,
         title="VRPSP大乱斗",
         user_id=getattr(event, "user_id", 0),
+        query_source_text=build_query_source_text(event),
     )
     await 大乱斗开播.finish(seg)
