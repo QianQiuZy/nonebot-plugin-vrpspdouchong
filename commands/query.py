@@ -1,11 +1,15 @@
 # src/plugins/douchong/commands/query.py
 from __future__ import annotations
 
+import base64
 import re
 import time
 import datetime
+import tempfile
 from typing import Any, Dict, List, Optional, Tuple
 import asyncio
+from pathlib import Path
+from uuid import uuid4
 import httpx
 from nonebot import get_plugin_config, on_command
 from nonebot.adapters.onebot.v11 import (
@@ -369,7 +373,7 @@ async def query_sc_list(*, base: str, room_id: str, month_code: str) -> List[Dic
 
 
 # ========================= ④ 查SC：渲染函数（分页多图） =========================
-SC_MAX_PAGE_HEIGHT = 4000
+SC_MAX_PAGE_HEIGHT = 16000
 BASE_ROW_H = 60
 EXTRA_PER_LINE = 28
 MSG_MAX_CHARS_PER_LINE = 20
@@ -451,6 +455,43 @@ def _paginate_rows_by_height(
 
     return pages or [(0, [])]
 
+
+def _sc_image_temp_dir() -> Path:
+    temp_dir = Path(tempfile.gettempdir()) / "nonebot-plugin-vrpspdouchong" / "sc"
+    temp_dir.mkdir(parents=True, exist_ok=True)
+
+    expire_before = time.time() - 24 * 3600
+    for old_file in temp_dir.glob("*.png"):
+        try:
+            if old_file.stat().st_mtime < expire_before:
+                old_file.unlink()
+        except Exception:
+            continue
+
+    return temp_dir
+
+
+def _safe_file_stem(text: str) -> str:
+    stem = re.sub(r"[^\w\u4e00-\u9fff-]+", "_", str(text or "").strip())
+    stem = stem.strip("_")
+    return stem or "sc"
+
+
+def _save_sc_image_file(image_b64: str, *, anchor_name: str, page_no: int, total_pages: int) -> Path:
+    temp_dir = _sc_image_temp_dir()
+    filename = (
+        f"{_safe_file_stem(anchor_name)}_"
+        f"{int(time.time() * 1000)}_{page_no:02d}-{total_pages:02d}_{uuid4().hex[:8]}.png"
+    )
+    file_path = temp_dir / filename
+    file_path.write_bytes(base64.b64decode(image_b64))
+    return file_path
+
+
+def _sc_image_uri(image_path: Path) -> str:
+    return image_path.resolve().as_uri()
+
+
 def render_sc_images(
     *,
     anchor_name: str,
@@ -458,7 +499,7 @@ def render_sc_images(
     month_code: str,
     sc_list: List[Dict[str, Any]],
     query_source_text: str,
-) -> List[str]:
+) -> List[Path]:
     # 列设置
     col_widths = [350, 350, 300, 100, 700]
     headers = ["发送时间", "发送人", "UID", "价格", "内容"]
@@ -504,7 +545,7 @@ def render_sc_images(
         table_padding_h=40,
     )
 
-    out_b64: List[str] = []
+    out_files: List[Path] = []
     total_pages = len(pages)
 
     for page_no, (global_start_idx, page_rows) in enumerate(pages, start=1):
@@ -577,9 +618,16 @@ def render_sc_images(
         pic.draw_text_right(0, "Designed by 开发猫", Color.GRAY)
 
         pic.crop_and_paste_bottom()
-        out_b64.append(pic.base64())
+        out_files.append(
+            _save_sc_image_file(
+                pic.base64(),
+                anchor_name=anchor_name,
+                page_no=page_no,
+                total_pages=total_pages,
+            )
+        )
 
-    return out_b64
+    return out_files
 
 
 # ========================= ⑤ 查SC：发送函数（合并转发） =========================
@@ -588,7 +636,7 @@ async def _send_forward_images(
     event: MessageEvent,
     *,
     title: str,
-    images_b64: List[str],
+    image_paths: List[Path],
     anchor_name: str = "",
 ) -> None:
     """
@@ -596,7 +644,7 @@ async def _send_forward_images(
     - 每页一条 node_custom，内容为图片
     - 使用 bot.self_id 作为发送者，昵称固定为 title（或你也可改为 cfg.xxx）
     """
-    if not images_b64:
+    if not image_paths:
         return
 
     try:
@@ -610,16 +658,16 @@ async def _send_forward_images(
         MessageSegment.node_custom(
             user_id=uin,
             nickname=title,
-            content=Message(f"{anchor_name} {title}（共 {len(images_b64)} 页）"),
+            content=Message(f"{anchor_name} {title}（共 {len(image_paths)} 页）"),
         )
     )
-    for i, b64 in enumerate(images_b64, start=1):
-        img_seg = MessageSegment.image(f"base64://{b64}")
+    for i, image_path in enumerate(image_paths, start=1):
+        img_seg = MessageSegment.image(_sc_image_uri(image_path))
         nodes.append(
             MessageSegment.node_custom(
                 user_id=uin,
                 nickname=title,
-                content=Message([MessageSegment.text(f"第 {i}/{len(images_b64)} 页"), img_seg]),
+                content=Message([MessageSegment.text(f"第 {i}/{len(image_paths)} 页"), img_seg]),
             )
         )
 
@@ -820,7 +868,7 @@ async def _(bot: Bot, event: MessageEvent, arg: Message = CommandArg()):
     except Exception as e:
         await 查SC.finish(MessageSegment.text(f"未能获取 SC 记录：{e}"))
 
-    images = render_sc_images(
+    image_paths = render_sc_images(
         anchor_name=anchor_name,
         room_id=room_id,
         month_code=month_code,
@@ -829,13 +877,13 @@ async def _(bot: Bot, event: MessageEvent, arg: Message = CommandArg()):
     )
 
     # 关键改动：多图 => 合并转发；单图 => 直接发图
-    if len(images) <= 1:
-        b64 = images[0] if images else ""
-        if not b64:
+    if len(image_paths) <= 1:
+        image_path = image_paths[0] if image_paths else None
+        if not image_path:
             await 查SC.finish(MessageSegment.text("本月暂无 SC 记录"))
-        await 查SC.finish(MessageSegment.image(f"base64://{b64}"))
+        await 查SC.finish(MessageSegment.image(_sc_image_uri(image_path)))
     else:
-        await _send_forward_images(bot, event, title="查SC", images_b64=images, anchor_name=anchor_name)
+        await _send_forward_images(bot, event, title="查SC", image_paths=image_paths, anchor_name=anchor_name)
         await 查SC.finish()
 
 @查流水.handle()
