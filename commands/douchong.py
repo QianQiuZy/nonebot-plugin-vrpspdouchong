@@ -347,6 +347,14 @@ def render_table_image(
     query_source_text: str,
 ) -> str:
     # ---------- 预处理：计算总计、格式化、排序 ----------
+    total_live_duration_seconds = 0
+    total_blind_box_count = 0
+    total_blind_box_profit = 0.0
+    total_gift = 0.0
+    total_sc = 0.0
+    total_guard = 0.0
+    total_sum = 0.0
+
     for d in data_list:
         gift = _to_float(d.get("gift", 0))
         sc = _to_float(d.get("super_chat", 0))
@@ -355,6 +363,14 @@ def render_table_image(
 
         d["duration_fmt"] = format_duration(d.get("live_duration", "00:00:00"))
         d["fans_fmt"] = format_fans(_to_int(d.get("attention", 0)))
+
+        total_live_duration_seconds += _duration_to_seconds(d.get("live_duration", "00:00:00"))
+        total_blind_box_count += _to_int(d.get("blind_box_count", 0))
+        total_blind_box_profit += _to_float(d.get("blind_box_profit", 0))
+        total_gift += gift
+        total_sc += sc
+        total_guard += guard
+        total_sum += d["total"]
 
     data_list.sort(key=lambda x: _to_float(x.get("total", 0)), reverse=True)
 
@@ -372,10 +388,10 @@ def render_table_image(
         120,  # 粉丝团数量
         100,  # 盲盒数
         130,  # 盲盒盈亏
-        150,  # 礼物
-        150,  # SC
-        150,  # 上舰金额
-        200,  # 总计
+        180,  # 礼物
+        180,  # SC
+        180,  # 上舰金额
+        220,  # 总计
     ]
     headers = [
         "主播名称", "粉丝数", "直播状态", "直播时间", "有效天",
@@ -384,7 +400,7 @@ def render_table_image(
     ]
 
     table_width = sum(col_widths) + 40
-    table_height = row_height * (len(data_list) + 1) + 40
+    table_height = row_height * (len(data_list) + 2) + 40
     canvas_width = table_width
     canvas_height = table_height + 160
 
@@ -458,6 +474,32 @@ def render_table_image(
             cur_x += w
 
         cur_y += row_height
+
+    # 合计行
+    pic.draw_rounded_rectangle(origin_x, cur_y, table_width - 40, row_height, 0, Color.LIGHTGRAY)
+    total_fields: List[Tuple[str, Any]] = [
+        ("总计", Color.BLACK),
+        ("", Color.BLACK),
+        ("", Color.BLACK),
+        (format_duration(_seconds_to_duration(total_live_duration_seconds)), Color.BLACK),
+        ("", Color.BLACK),
+        ("", Color.BLACK),
+        ("", Color.BLACK),
+        ("", Color.BLACK),
+        ("", Color.BLACK),
+        (str(total_blind_box_count), Color.BLACK),
+        (f"{total_blind_box_profit:.1f}", Color.BLACK),
+        (f"{total_gift:.1f}", Color.BLACK),
+        (f"{total_sc:.1f}", Color.BLACK),
+        (f"{total_guard:.1f}", Color.BLACK),
+        (f"{total_sum:.1f}", Color.BLACK),
+    ]
+    cur_x = origin_x + 10
+    for w, (text, txt_color) in zip(col_widths, total_fields):
+        pic.set_pos(cur_x, cur_y + 18).draw_text(str(text), [txt_color])
+        cur_x += w
+
+    cur_y += row_height
 
     # ---------- 底部 ----------
     pic.set_pos(canvas_width - 220, canvas_height - 40)
