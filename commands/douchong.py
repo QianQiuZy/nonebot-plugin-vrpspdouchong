@@ -237,6 +237,14 @@ def _seconds_to_duration(total_seconds: int) -> str:
     return f"{hh:02d}:{mm:02d}:{ss:02d}"
 
 
+def format_hourly_rate(total: Any, live_duration: Any) -> str:
+    duration_seconds = _duration_to_seconds(live_duration)
+    if duration_seconds <= 0:
+        return "0.00"
+    hourly_rate = _to_float(total, 0.0) / (duration_seconds / 3600)
+    return f"{hourly_rate:.2f}"
+
+
 def build_query_source_text(event: MessageEvent) -> str:
     group_id = getattr(event, "group_id", None)
     user_id = getattr(event, "user_id", None)
@@ -381,6 +389,7 @@ def render_table_image(
         140,  # 粉丝数
         150,  # 直播状态
         200,  # 直播时间
+        180,
         100,  # 有效天
         90,   # 舰长数量
         90,   # 提督数量
@@ -394,7 +403,7 @@ def render_table_image(
         220,  # 总计
     ]
     headers = [
-        "主播名称", "粉丝数", "直播状态", "直播时间", "有效天",
+        "主播名称", "粉丝数", "直播状态", "直播时间", "时薪", "有效天",
         "舰长", "提督", "总督", "粉丝团","盲盒数", "盲盒盈亏",
         "礼物", "SC", "上舰", "总计",
     ]
@@ -451,6 +460,7 @@ def render_table_image(
             (str(d.get("fans_fmt", "0")), Color.BLACK),
             (status_txt, status_col),
             (str(d.get("duration_fmt", "")), Color.BLACK),
+            (format_hourly_rate(d.get("total", 0), d.get("live_duration", "00:00:00")), Color.BLACK),
             (str(d.get("effective_days", "")), Color.BLACK),
 
             (format_count(d.get("guard_1")), Color.BLACK),
@@ -482,6 +492,7 @@ def render_table_image(
         ("", Color.BLACK),
         ("", Color.BLACK),
         (format_duration(_seconds_to_duration(total_live_duration_seconds)), Color.BLACK),
+        (format_hourly_rate(total_sum, _seconds_to_duration(total_live_duration_seconds)), Color.BLACK),
         ("", Color.BLACK),
         ("", Color.BLACK),
         ("", Color.BLACK),
