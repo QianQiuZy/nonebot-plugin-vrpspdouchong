@@ -31,6 +31,7 @@ cfg = get_plugin_config(Config)
 # -------------------- commands --------------------
 查直播 = on_command("查直播", block=True, priority=5)
 查SC = on_command("查SC", block=True, priority=5)
+查粉丝 = on_command("查粉丝", block=True, priority=5)
 查流水 = on_command("查流水", priority=20, block=True)
 
 # -------------------- utils: month --------------------
@@ -257,7 +258,7 @@ def render_live_sessions_image(
 
     row_height = 60
     table_width = sum(col_widths) + 40
-    header_h = 160
+    header_h = 190
     n_rows = max(1, len(rows))
     table_height = row_height * (n_rows + 2) + 40  # 表头+合计
     canvas_width = table_width
@@ -269,14 +270,13 @@ def render_live_sessions_image(
     LEFT = 20
     TITLE_Y = 30
     ROOM_Y = 90
-    TIME_Y = 120
+    SOURCE_Y = 120
+    TIME_Y = 150
 
     month_label = "本月" if month_code == current_month_code() else f"{month_code}月"
     pic.set_pos(LEFT, TITLE_Y).draw_text(f"{anchor_name}{month_label}直播情况", [Color.BLACK])
-    pic.set_pos(LEFT, ROOM_Y).draw_text(
-        [f"房间号：{room_id}  ", query_source_text],
-        [Color.GRAY, Color.GRAY],
-    )
+    pic.set_pos(LEFT, ROOM_Y).draw_text(f"房间号：{room_id}", [Color.GRAY])
+    pic.set_pos(LEFT, SOURCE_Y).draw_text(query_source_text, [Color.GRAY])
     pic.set_pos(LEFT, TIME_Y).draw_text(
         f"查询时间：{timestamp_format(int(time.time()), '%Y-%m-%d %H:%M:%S')}",
         [Color.GRAY],
@@ -357,7 +357,124 @@ def render_live_sessions_image(
     pic.crop_and_paste_bottom()
     return pic.base64()
 
-# ========================= ③ 查SC：查询函数 =========================
+
+# ========================= ③ 查粉丝：查询函数 =========================
+async def query_attention_snapshots(*, base: str, room_id: str, month_code: str) -> List[Tuple[str, int]]:
+    url = f"{base}/attention?room_id={room_id}&month={month_code}"
+    payload = await _fetch_json(url)
+
+    if not isinstance(payload, dict):
+        return []
+
+    items = payload.get("attention")
+    if not isinstance(items, list):
+        return []
+
+    rows: List[Tuple[str, int]] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        for raw_date, raw_count in item.items():
+            date_text = str(raw_date).strip()
+            if not re.fullmatch(r"\d{8}", date_text):
+                continue
+            try:
+                count = int(raw_count)
+            except Exception:
+                continue
+            rows.append((date_text, count))
+
+    rows.sort(key=lambda row: row[0])
+    return rows
+
+
+# ========================= ④ 查粉丝：渲染函数 =========================
+def _format_attention_date(date_code: str) -> str:
+    if re.fullmatch(r"\d{8}", date_code):
+        return f"{date_code[:4]}-{date_code[4:6]}-{date_code[6:]}"
+    return date_code
+
+
+def render_attention_image(
+    *,
+    anchor_name: str,
+    room_id: str,
+    month_code: str,
+    attention_rows: List[Tuple[str, int]],
+    query_source_text: str,
+) -> str:
+    col_widths = [300, 260]
+    headers = ["日期", "粉丝数"]
+    row_height = 60
+    header_h = 190
+    n_rows = max(1, len(attention_rows))
+    table_width = sum(col_widths) + 40
+    table_height = row_height * (n_rows + 2) + 40  # 表头 + 数据/空行 + 涨粉数
+    canvas_width = table_width
+    canvas_height = header_h + table_height
+
+    pic = PicGenerator(canvas_width, canvas_height)
+    pic.set_pos(0, 0).draw_rounded_rectangle(0, 0, canvas_width, canvas_height, 0, Color.WHITE)
+
+    LEFT = 20
+    TITLE_Y = 30
+    ROOM_Y = 90
+    SOURCE_Y = 120
+    TIME_Y = 150
+
+    month_label = "本月" if month_code == current_month_code() else f"{month_code}月"
+    pic.set_pos(LEFT, TITLE_Y).draw_text(f"{anchor_name}{month_label}粉丝情况", [Color.BLACK])
+    pic.set_pos(LEFT, ROOM_Y).draw_text(f"房间号：{room_id}", [Color.GRAY])
+    pic.set_pos(LEFT, SOURCE_Y).draw_text(query_source_text, [Color.GRAY])
+    pic.set_pos(LEFT, TIME_Y).draw_text(
+        f"查询时间：{timestamp_format(int(time.time()), '%Y-%m-%d %H:%M:%S')}",
+        [Color.GRAY],
+    )
+
+    origin_x = 20
+    cur_y = header_h
+
+    pic.draw_rounded_rectangle(origin_x, cur_y, table_width - 40, row_height, 0, Color.DEEPSKYBLUE)
+    cur_x = origin_x + 10
+    for w, h in zip(col_widths, headers):
+        pic.set_pos(cur_x, cur_y + 18).draw_text(h, [Color.WHITE])
+        cur_x += w
+
+    cur_y += row_height
+    if attention_rows:
+        for idx, (date_code, count) in enumerate(attention_rows):
+            bg = Color.LIGHTGRAY if (idx % 2 == 0) else Color.WHITE
+            pic.draw_rounded_rectangle(origin_x, cur_y, table_width - 40, row_height, 0, bg)
+
+            cells = [_format_attention_date(date_code), str(count)]
+            cur_x = origin_x + 10
+            for w, txt in zip(col_widths, cells):
+                pic.set_pos(cur_x, cur_y + 18).draw_text(txt, [Color.BLACK])
+                cur_x += w
+            cur_y += row_height
+    else:
+        pic.draw_rounded_rectangle(origin_x, cur_y, table_width - 40, row_height, 0, Color.WHITE)
+        pic.set_pos(origin_x + 10, cur_y + 18).draw_text("（无记录）", [Color.BLACK])
+        cur_y += row_height
+
+    if len(attention_rows) >= 2:
+        fans_delta = attention_rows[-1][1] - attention_rows[0][1]
+    else:
+        fans_delta = 0
+
+    pic.draw_rounded_rectangle(origin_x, cur_y, table_width - 40, row_height, 0, Color.LIGHTGRAY)
+    cur_x = origin_x + 10
+    for w, txt in zip(col_widths, ["涨粉数", str(fans_delta)]):
+        pic.set_pos(cur_x, cur_y + 18).draw_text(txt, [Color.BLACK])
+        cur_x += w
+
+    pic.set_pos(canvas_width - 220, canvas_height - 40)
+    pic.draw_text_right(0, "Designed by 开发猫", Color.GRAY)
+
+    pic.crop_and_paste_bottom()
+    return pic.base64()
+
+# ========================= ⑤ 查SC：查询函数 =========================
 async def query_sc_list(*, base: str, room_id: str, month_code: str) -> List[Dict[str, Any]]:
     url = f"{base}/sc?room_id={room_id}&month={month_code}"
     payload = await _fetch_json(url)
@@ -372,7 +489,7 @@ async def query_sc_list(*, base: str, room_id: str, month_code: str) -> List[Dic
     return []
 
 
-# ========================= ④ 查SC：渲染函数（分页多图） =========================
+# ========================= ⑥ 查SC：渲染函数（分页多图） =========================
 SC_MAX_PAGE_HEIGHT = 16000
 BASE_ROW_H = 60
 EXTRA_PER_LINE = 28
@@ -535,7 +652,7 @@ def render_sc_images(
             }
         )
 
-    header_h = 160
+    header_h = 190
     table_header_h = BASE_ROW_H
     pages = _paginate_rows_by_height(
         rows,
@@ -561,15 +678,14 @@ def render_sc_images(
         LEFT = 20
         TITLE_Y = 30
         ROOM_Y = 90
-        TIME_Y = 120
+        SOURCE_Y = 120
+        TIME_Y = 150
 
         month_disp = f"{month_code[:4]}-{month_code[4:]}" if len(month_code) == 6 else month_code
         title_text = f"{anchor_name} {month_disp} SC 记录（{page_no}/{total_pages}）"
         pic.set_pos(LEFT, TITLE_Y).draw_text(title_text, [Color.BLACK])
-        pic.set_pos(LEFT, ROOM_Y).draw_text(
-            [f"房间号：{room_id}  ", query_source_text],
-            [Color.GRAY, Color.GRAY],
-        )
+        pic.set_pos(LEFT, ROOM_Y).draw_text(f"房间号：{room_id}", [Color.GRAY])
+        pic.set_pos(LEFT, SOURCE_Y).draw_text(query_source_text, [Color.GRAY])
 
         now_str = timestamp_format(int(time.time()), "%Y-%m-%d %H:%M:%S")
         count_str = f"共 {len(rows)} 条" if rows else "暂无记录"
@@ -630,7 +746,7 @@ def render_sc_images(
     return out_files
 
 
-# ========================= ⑤ 查SC：发送函数（合并转发） =========================
+# ========================= ⑦ 查SC：发送函数（合并转发） =========================
 async def _send_forward_images(
     bot: Bot,
     event: MessageEvent,
@@ -767,8 +883,10 @@ def render_liushui_card(
     y = 24
 
     # 标题
-    pic.set_pos(LEFT, y).draw_text([f"{anchor}  ", query_source_text], [Color.BLACK, Color.GRAY])
+    pic.set_pos(LEFT, y).draw_text(anchor, [Color.BLACK])
     y += 52
+    pic.set_pos(LEFT, y).draw_text(query_source_text, Color.GRAY)
+    y += 42
     pic.set_pos(LEFT, y).draw_text(f"统计月份：{month_disp}（{month_label}）", Color.GRAY)
     y += 42
     pic.set_pos(LEFT, y).draw_text(f"房间号：{room_id}    粉丝数：{attention}", Color.GRAY)
@@ -885,6 +1003,43 @@ async def _(bot: Bot, event: MessageEvent, arg: Message = CommandArg()):
     else:
         await _send_forward_images(bot, event, title="查SC", image_paths=image_paths, anchor_name=anchor_name)
         await 查SC.finish()
+
+
+@查粉丝.handle()
+async def _(bot: Bot, event: MessageEvent, arg: Message = CommandArg()):
+    anchor_kw, month_code = _parse_anchor_and_month(str(arg))
+    if not anchor_kw:
+        await 查粉丝.finish(MessageSegment.text("用法：/查粉丝 主播名称 [YYYYMM|YYYY-MM]"))
+        return
+    query_source_text = build_query_source_text(event)
+
+    logger.info(f"[查粉丝] kw={anchor_kw} month={month_code} user={getattr(event, 'user_id', 0)}")
+
+    base, match = await _locate_room_by_anchor(anchor_kw)
+    if not base or not match:
+        await 查粉丝.finish(MessageSegment.text("未找到用户"))
+        return
+
+    anchor_name = str(match.get("anchor_name") or anchor_kw)
+    room_id = str(match.get("room_id") or "")
+    if not room_id:
+        await 查粉丝.finish(MessageSegment.text("该用户缺少房间信息"))
+        return
+
+    try:
+        attention_rows = await query_attention_snapshots(base=base, room_id=room_id, month_code=month_code)
+    except Exception as e:
+        await 查粉丝.finish(MessageSegment.text(f"未能获取粉丝记录：{e}"))
+        return
+
+    b64 = render_attention_image(
+        anchor_name=anchor_name,
+        room_id=room_id,
+        month_code=month_code,
+        attention_rows=attention_rows,
+        query_source_text=query_source_text,
+    )
+    await 查粉丝.finish(MessageSegment.image(f"base64://{b64}"))
 
 @查流水.handle()
 async def _(bot: Bot, event: GroupMessageEvent | PrivateMessageEvent, arg: Message = CommandArg()):

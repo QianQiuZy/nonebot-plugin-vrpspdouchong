@@ -411,7 +411,7 @@ def render_table_image(
     table_width = sum(col_widths) + 40
     table_height = row_height * (len(data_list) + 2) + 40
     canvas_width = table_width
-    canvas_height = table_height + 160
+    canvas_height = table_height + 190
 
     pic = PicGenerator(canvas_width, canvas_height)
     pic.set_pos(0, 0).draw_rounded_rectangle(0, 0, canvas_width, canvas_height, 0, Color.WHITE)
@@ -419,7 +419,8 @@ def render_table_image(
     # ---------- 标题与时间 ----------
     LEFT_PADDING = 20
     TIME_Y = 90
-    MONTH_Y = 120
+    SOURCE_Y = 120
+    MONTH_Y = 150
     TIP_X_OFFSET = 300
 
     pic.set_pos(LEFT_PADDING, 30).draw_text(title, [Color.BLACK])
@@ -428,15 +429,17 @@ def render_table_image(
     pic.set_pos(LEFT_PADDING, TIME_Y).draw_text(now_str, [Color.GRAY])
 
     pic.set_pos(LEFT_PADDING + TIP_X_OFFSET, TIME_Y).draw_text(
-        ["数据为每月1号开始统计，月底清零。  ", query_source_text],
-        [Color.GRAY, Color.GRAY],
+        "数据为每月1号开始统计，月底清零。",
+        [Color.GRAY],
     )
+
+    pic.set_pos(LEFT_PADDING, SOURCE_Y).draw_text(query_source_text, [Color.GRAY])
 
     pic.set_pos(LEFT_PADDING, MONTH_Y).draw_text(f"统计周期：{period_display}", [Color.GRAY])
 
     # ---------- 表格绘制 ----------
     origin_x = 20
-    origin_y = 160
+    origin_y = 190
     cur_y = origin_y
 
     # 表头

@@ -129,7 +129,7 @@ def _render_live_list_image(title: str, live_list: List[Dict[str, Any]], query_s
     table_width = sum(col_widths) + 40
     table_height = row_height * (len(live_list) + 1) + 40
     canvas_width = table_width
-    canvas_height = table_height + 140
+    canvas_height = table_height + 170
 
     pic = PicGenerator(canvas_width, canvas_height)
     pic.set_pos(0, 0).draw_rounded_rectangle(0, 0, canvas_width, canvas_height, 0, Color.WHITE)
@@ -138,19 +138,18 @@ def _render_live_list_image(title: str, live_list: List[Dict[str, Any]], query_s
     LEFT_PADDING = 20
     TITLE_Y = 30
     TIME_Y = 90
-    TIP_X_OFFSET = 300
+    SOURCE_Y = 120
+    NOTE_X_OFFSET = 300
 
     pic.set_pos(LEFT_PADDING, TITLE_Y).draw_text(title, [Color.BLACK])
     now_str = timestamp_format(int(time.time()), "%Y-%m-%d %H:%M:%S")
     pic.set_pos(LEFT_PADDING, TIME_Y).draw_text(now_str, [Color.GRAY])
-    pic.set_pos(LEFT_PADDING + TIP_X_OFFSET, TIME_Y).draw_text(
-        ["仅列出当前正在直播的房间  ", query_source_text],
-        [Color.GRAY, Color.GRAY],
-    )
+    pic.set_pos(LEFT_PADDING + NOTE_X_OFFSET, TIME_Y).draw_text("仅列出当前正在直播的房间", [Color.GRAY])
+    pic.set_pos(LEFT_PADDING, SOURCE_Y).draw_text(query_source_text, [Color.GRAY])
 
     # ---------- 表格绘制 ----------
     origin_x = 20
-    origin_y = 140
+    origin_y = 170
     cur_y = origin_y
 
     # 表头背景
