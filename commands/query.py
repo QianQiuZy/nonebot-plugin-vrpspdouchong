@@ -359,7 +359,19 @@ def render_live_sessions_image(
 
 
 # ========================= ③ 查粉丝：查询函数 =========================
-async def query_attention_snapshots(*, base: str, room_id: str, month_code: str) -> List[Tuple[str, int]]:
+AttentionRow = Tuple[str, int, Optional[int], Optional[int], Optional[int], Optional[int]]
+
+
+def _parse_optional_count(value: Any) -> Optional[int]:
+    if value is None or value == "":
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+async def query_attention_snapshots(*, base: str, room_id: str, month_code: str) -> List[AttentionRow]:
     url = f"{base}/attention?room_id={room_id}&month={month_code}"
     payload = await _fetch_json(url)
 
@@ -370,19 +382,26 @@ async def query_attention_snapshots(*, base: str, room_id: str, month_code: str)
     if not isinstance(items, list):
         return []
 
-    rows: List[Tuple[str, int]] = []
+    rows: List[AttentionRow] = []
     for item in items:
         if not isinstance(item, dict):
             continue
-        for raw_date, raw_count in item.items():
-            date_text = str(raw_date).strip()
-            if not re.fullmatch(r"\d{8}", date_text):
-                continue
-            try:
-                count = int(raw_count)
-            except Exception:
-                continue
-            rows.append((date_text, count))
+        date_text = str(item.get("date") or "").strip()
+        if not re.fullmatch(r"\d{8}", date_text):
+            continue
+        attention = _parse_optional_count(item.get("attention"))
+        if attention is None:
+            continue
+        rows.append(
+            (
+                date_text,
+                attention,
+                _parse_optional_count(item.get("guard_1")),
+                _parse_optional_count(item.get("guard_2")),
+                _parse_optional_count(item.get("guard_3")),
+                _parse_optional_count(item.get("fans_count")),
+            )
+        )
 
     rows.sort(key=lambda row: row[0])
     return rows
@@ -400,11 +419,11 @@ def render_attention_image(
     anchor_name: str,
     room_id: str,
     month_code: str,
-    attention_rows: List[Tuple[str, int]],
+    attention_rows: List[AttentionRow],
     query_source_text: str,
 ) -> str:
-    col_widths = [300, 260]
-    headers = ["日期", "粉丝数"]
+    col_widths = [260, 200, 150, 150, 150, 180]
+    headers = ["日期", "粉丝数", "舰长", "提督", "总督", "粉丝团"]
     row_height = 60
     header_h = 190
     n_rows = max(1, len(attention_rows))
@@ -442,11 +461,18 @@ def render_attention_image(
 
     cur_y += row_height
     if attention_rows:
-        for idx, (date_code, count) in enumerate(attention_rows):
+        for idx, (date_code, count, guard_1, guard_2, guard_3, fans_count) in enumerate(attention_rows):
             bg = Color.LIGHTGRAY if (idx % 2 == 0) else Color.WHITE
             pic.draw_rounded_rectangle(origin_x, cur_y, table_width - 40, row_height, 0, bg)
 
-            cells = [_format_attention_date(date_code), str(count)]
+            cells = [
+                _format_attention_date(date_code),
+                str(count),
+                "-" if guard_1 is None else str(guard_1),
+                "-" if guard_2 is None else str(guard_2),
+                "-" if guard_3 is None else str(guard_3),
+                "-" if fans_count is None else str(fans_count),
+            ]
             cur_x = origin_x + 10
             for w, txt in zip(col_widths, cells):
                 pic.set_pos(cur_x, cur_y + 18).draw_text(txt, [Color.BLACK])
@@ -464,7 +490,7 @@ def render_attention_image(
 
     pic.draw_rounded_rectangle(origin_x, cur_y, table_width - 40, row_height, 0, Color.LIGHTGRAY)
     cur_x = origin_x + 10
-    for w, txt in zip(col_widths, ["涨粉数", str(fans_delta)]):
+    for w, txt in zip(col_widths, ["涨粉数", str(fans_delta), "", "", "", ""]):
         pic.set_pos(cur_x, cur_y + 18).draw_text(txt, [Color.BLACK])
         cur_x += w
 
