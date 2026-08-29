@@ -468,10 +468,10 @@ def render_attention_image(
             cells = [
                 _format_attention_date(date_code),
                 str(count),
-                "-" if guard_1 is None else str(guard_1),
-                "-" if guard_2 is None else str(guard_2),
-                "-" if guard_3 is None else str(guard_3),
-                "-" if fans_count is None else str(fans_count),
+                "-" if guard_1 is 0 else str(guard_1),
+                "-" if guard_2 is 0 else str(guard_2),
+                "-" if guard_3 is 0 else str(guard_3),
+                "-" if fans_count is 0 else str(fans_count),
             ]
             cur_x = origin_x + 10
             for w, txt in zip(col_widths, cells):
