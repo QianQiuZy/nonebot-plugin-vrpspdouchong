@@ -178,6 +178,7 @@ def render_live_sessions_image(
     total_danmu = 0
     total_box = 0
     total_profit = 0.0
+    total_payer_count = 0
     total_gift = 0.0
     total_guard = 0.0
     total_sc = 0.0
@@ -206,6 +207,7 @@ def render_live_sessions_image(
 
         blind_box_count = int(s.get("blind_box_count") or 0)
         blind_box_profit = float(s.get("blind_box_profit") or 0)
+        payer_count = int(s.get("payer_count") or 0)
         gift = float(s.get("gift") or 0)
         guard = float(s.get("guard") or 0)
         sc = float(s.get("super_chat") or 0)
@@ -236,6 +238,7 @@ def render_live_sessions_image(
                 "title": title,
                 "blind_box_count": blind_box_count,
                 "blind_box_profit": blind_box_profit,
+                "payer_count": payer_count,
                 "gift": gift,
                 "guard": guard,
                 "sc": sc,
@@ -245,6 +248,7 @@ def render_live_sessions_image(
 
         total_box += blind_box_count
         total_profit += blind_box_profit
+        total_payer_count += payer_count
         total_danmu += danmu
         total_gift += gift
         total_guard += guard
@@ -253,8 +257,8 @@ def render_live_sessions_image(
         total_seconds += max(0, dur_sec)
 
     # NEW: 在“弹幕数”和“本场直播标题”之间插入两列，宽度均 150
-    col_widths = [350, 350, 200, 120, 150, 150, 600, 100, 120, 150, 150, 150, 200]
-    headers = ["开播时间", "下播时间", "本场直播时间", "弹幕数", "平均同接", "最高同接", "本场直播标题", "盲盒数", "盲盒盈亏", "礼物", "舰长", "SC", "总计"]
+    col_widths = [350, 350, 200, 120, 150, 150, 600, 100, 150, 180, 180, 150, 150, 200]
+    headers = ["开播时间", "下播时间", "本场直播时间", "弹幕数", "平均同接", "最高同接", "本场直播标题", "盲盒数", "盲盒盈亏", "付费人数", "礼物", "舰长", "SC", "总计"]
 
     row_height = 60
     table_width = sum(col_widths) + 40
@@ -311,6 +315,7 @@ def render_live_sessions_image(
                 r["title"],
                 str(r["blind_box_count"]),
                 f"{r['blind_box_profit']:.1f}",
+                str(r["payer_count"]),
                 f"{r['gift']:.1f}",
                 f"{r['guard']:.1f}",
                 f"{r['sc']:.1f}",
@@ -340,6 +345,7 @@ def render_live_sessions_image(
         "",  # title
         str(total_box),
         f"{total_profit:.1f}",
+        str(total_payer_count),
         f"{total_gift:.1f}",
         f"{total_guard:.1f}",
         f"{total_sc:.1f}",
@@ -359,7 +365,16 @@ def render_live_sessions_image(
 
 
 # ========================= ③ 查粉丝：查询函数 =========================
-AttentionRow = Tuple[str, int, Optional[int], Optional[int], Optional[int], Optional[int]]
+AttentionRow = Tuple[
+    str,
+    int,
+    Optional[int],
+    Optional[int],
+    Optional[int],
+    Optional[int],
+    Optional[int],
+    Optional[int],
+]
 
 
 def _parse_optional_count(value: Any) -> Optional[int]:
@@ -369,6 +384,10 @@ def _parse_optional_count(value: Any) -> Optional[int]:
         return int(value)
     except (TypeError, ValueError):
         return None
+
+
+def _format_snapshot_count(value: Optional[int]) -> str:
+    return "0" if value is None else str(value)
 
 
 async def query_attention_snapshots(*, base: str, room_id: str, month_code: str) -> List[AttentionRow]:
@@ -400,6 +419,8 @@ async def query_attention_snapshots(*, base: str, room_id: str, month_code: str)
                 _parse_optional_count(item.get("guard_2")),
                 _parse_optional_count(item.get("guard_3")),
                 _parse_optional_count(item.get("fans_count")),
+                _parse_optional_count(item.get("payer_count")),
+                _parse_optional_count(item.get("steel_coin_count")),
             )
         )
 
@@ -422,8 +443,8 @@ def render_attention_image(
     attention_rows: List[AttentionRow],
     query_source_text: str,
 ) -> str:
-    col_widths = [260, 200, 150, 150, 150, 180]
-    headers = ["日期", "粉丝数", "舰长", "提督", "总督", "粉丝团"]
+    col_widths = [260, 200, 150, 150, 150, 180, 200, 200]
+    headers = ["日期", "粉丝数", "舰长", "提督", "总督", "粉丝团", "当日付费人数", "当日钢镚人数"]
     row_height = 60
     header_h = 190
     n_rows = max(1, len(attention_rows))
@@ -461,17 +482,19 @@ def render_attention_image(
 
     cur_y += row_height
     if attention_rows:
-        for idx, (date_code, count, guard_1, guard_2, guard_3, fans_count) in enumerate(attention_rows):
+        for idx, (date_code, count, guard_1, guard_2, guard_3, fans_count, payer_count, steel_coin_count) in enumerate(attention_rows):
             bg = Color.LIGHTGRAY if (idx % 2 == 0) else Color.WHITE
             pic.draw_rounded_rectangle(origin_x, cur_y, table_width - 40, row_height, 0, bg)
 
             cells = [
                 _format_attention_date(date_code),
                 str(count),
-                "-" if guard_1 is 0 else str(guard_1),
-                "-" if guard_2 is 0 else str(guard_2),
-                "-" if guard_3 is 0 else str(guard_3),
-                "-" if fans_count is 0 else str(fans_count),
+                _format_snapshot_count(guard_1),
+                _format_snapshot_count(guard_2),
+                _format_snapshot_count(guard_3),
+                _format_snapshot_count(fans_count),
+                _format_snapshot_count(payer_count),
+                _format_snapshot_count(steel_coin_count),
             ]
             cur_x = origin_x + 10
             for w, txt in zip(col_widths, cells):
@@ -780,6 +803,7 @@ async def _send_forward_images(
     title: str,
     image_paths: List[Path],
     anchor_name: str = "",
+    item_label: str = "页",
 ) -> None:
     """
     伪造合并转发消息：
@@ -800,7 +824,7 @@ async def _send_forward_images(
         MessageSegment.node_custom(
             user_id=uin,
             nickname=title,
-            content=Message(f"{anchor_name} {title}（共 {len(image_paths)} 页）"),
+            content=Message(f"{anchor_name} {title}（共 {len(image_paths)} {item_label}）"),
         )
     )
     for i, image_path in enumerate(image_paths, start=1):
@@ -809,7 +833,7 @@ async def _send_forward_images(
             MessageSegment.node_custom(
                 user_id=uin,
                 nickname=title,
-                content=Message([MessageSegment.text(f"第 {i}/{len(image_paths)} 页"), img_seg]),
+                content=Message([MessageSegment.text(f"第 {i}/{len(image_paths)} {item_label}"), img_seg]),
             )
         )
 

@@ -12,3 +12,4 @@ __plugin_meta__ = PluginMetadata(
 from .commands import douchong as _douchong  # noqa: F401
 from .commands import live_list as _live_list  # noqa: F401
 from .commands import query as _query  # noqa: F401
+from .commands.live_detail import 查直播详细 as _live_detail

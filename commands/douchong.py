@@ -271,10 +271,10 @@ async def fetch_month_data(api_base: str, month_code: str) -> List[Dict[str, Any
 def merge_monthly_data(all_rows: List[Dict[str, Any]], *, include_live_status: bool = False) -> List[Dict[str, Any]]:
     """按 room_id（缺失时退化到 anchor_name）聚合多月数据。"""
     numeric_sum_fields = [
-        "effective_days", "guard_1", "guard_2", "guard_3", "fans_count",
+        "effective_days", "guard_1", "guard_2", "guard_3", "fans_count", "payer_count",
         "blind_box_count", "blind_box_profit", "gift", "super_chat", "guard",
     ]
-    int_sum_fields = ["effective_days", "guard_1", "guard_2", "guard_3", "fans_count", "blind_box_count"]
+    int_sum_fields = ["effective_days", "guard_1", "guard_2", "guard_3", "fans_count", "payer_count", "blind_box_count"]
     max_fields = ["attention"]
 
     merged: Dict[str, Dict[str, Any]] = {}
@@ -386,11 +386,13 @@ def render_table_image(
     row_height = 60
     col_widths = [
         300,  # 主播名称
+        220,
         140,  # 粉丝数
         150,  # 直播状态
         200,  # 直播时间
         180,
         100,  # 有效天
+        140,
         90,   # 舰长数量
         90,   # 提督数量
         90,   # 总督数量
@@ -400,12 +402,10 @@ def render_table_image(
         180,  # 礼物
         180,  # SC
         180,  # 上舰金额
-        220,  # 总计
     ]
     headers = [
-        "主播名称", "粉丝数", "直播状态", "直播时间", "时薪", "有效天",
-        "舰长", "提督", "总督", "粉丝团","盲盒数", "盲盒盈亏",
-        "礼物", "SC", "上舰", "总计",
+        "主播名称", "总计", "粉丝数", "直播状态", "直播时间", "时薪", "有效天", "月付费数",
+        "舰长", "提督", "总督", "粉丝团", "盲盒数", "盲盒盈亏", "礼物", "SC", "上舰",
     ]
 
     table_width = sum(col_widths) + 40
@@ -460,11 +460,13 @@ def render_table_image(
 
         fields: List[Tuple[str, Any]] = [
             (str(d.get("anchor_name", "")), Color.BLACK),
+            (f"{_to_float(d.get('total', 0)):.1f}", Color.BLACK),
             (str(d.get("fans_fmt", "0")), Color.BLACK),
             (status_txt, status_col),
             (str(d.get("duration_fmt", "")), Color.BLACK),
             (format_hourly_rate(d.get("total", 0), d.get("live_duration", "00:00:00")), Color.BLACK),
             (str(d.get("effective_days", "")), Color.BLACK),
+            (str(_to_int(d.get("payer_count", 0))), Color.BLACK),
 
             (format_count(d.get("guard_1")), Color.BLACK),
             (format_count(d.get("guard_2")), Color.BLACK),
@@ -476,7 +478,6 @@ def render_table_image(
             (f"{_to_float(d.get('gift', 0)):.1f}", Color.BLACK),
             (f"{_to_float(d.get('super_chat', 0)):.1f}", Color.BLACK),
             (f"{_to_float(d.get('guard', 0)):.1f}", Color.BLACK),
-            (f"{_to_float(d.get('total', 0)):.1f}", Color.BLACK),
         ]
 
         bg = Color.LIGHTGRAY if (idx % 2 == 0) else Color.WHITE
@@ -491,11 +492,13 @@ def render_table_image(
     # 合计行
     pic.draw_rounded_rectangle(origin_x, cur_y, table_width - 40, row_height, 0, Color.LIGHTGRAY)
     total_fields: List[Tuple[str, Any]] = [
-        ("总计", Color.BLACK),
+        ("合计", Color.BLACK),
+        (f"{total_sum:.1f}", Color.BLACK),
         ("", Color.BLACK),
         ("", Color.BLACK),
         (format_duration(_seconds_to_duration(total_live_duration_seconds)), Color.BLACK),
         (format_hourly_rate(total_sum, _seconds_to_duration(total_live_duration_seconds)), Color.BLACK),
+        ("", Color.BLACK),
         ("", Color.BLACK),
         ("", Color.BLACK),
         ("", Color.BLACK),
@@ -506,7 +509,6 @@ def render_table_image(
         (f"{total_gift:.1f}", Color.BLACK),
         (f"{total_sc:.1f}", Color.BLACK),
         (f"{total_guard:.1f}", Color.BLACK),
-        (f"{total_sum:.1f}", Color.BLACK),
     ]
     cur_x = origin_x + 10
     for w, (text, txt_color) in zip(col_widths, total_fields):
