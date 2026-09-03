@@ -827,15 +827,14 @@ async def _send_forward_images(
             content=Message(f"{anchor_name} {title}（共 {len(image_paths)} {item_label}）"),
         )
     )
-    for i, image_path in enumerate(image_paths, start=1):
-        img_seg = MessageSegment.image(_sc_image_uri(image_path))
-        nodes.append(
-            MessageSegment.node_custom(
-                user_id=uin,
-                nickname=title,
-                content=Message([MessageSegment.text(f"第 {i}/{len(image_paths)} {item_label}"), img_seg]),
-            )
+    for image_path in image_paths:
+        image_data = base64.b64encode(image_path.read_bytes()).decode("ascii")
+        result = await bot.call_api(
+            "send_private_msg",
+            user_id=uin,
+            message=MessageSegment.image(f"base64://{image_data}"),
         )
+        nodes.append(MessageSegment.node(int(result["message_id"])))
 
     if isinstance(event, GroupMessageEvent):
         await bot.call_api("send_forward_msg", group_id=event.group_id, messages=nodes)
