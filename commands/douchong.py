@@ -13,13 +13,14 @@ from nonebot.params import CommandArg
 
 from ..config import Config
 from ..toolkit import PicGenerator, Color, timestamp_format
+from .douchong_daily import build_brawl_daily_image, build_daily_image, normalize_day_arg
 
 cfg = get_plugin_config(Config)
 
 # ==========================
 # 1) Matcher：严格按你的要求
 # ==========================
-# VR斗虫：仅支持 /VR斗虫 与 /vr斗虫
+# VR斗虫：支持按日、按月和按年统计
 VR斗虫 = on_command(
     "VR斗虫",
     aliases={"vr斗虫"},
@@ -535,10 +536,26 @@ async def _handle_douchong(event: MessageEvent, arg: Message, *, api_base: str, 
     except Exception:
         raw = str(arg).strip()
 
+    day_code = normalize_day_arg(raw)
+    if day_code:
+        try:
+            b64 = await build_daily_image(
+                api_base=api_base,
+                day_code=day_code,
+                title=title,
+                query_source_text=build_query_source_text(event),
+                timeout=cfg.vr_http_timeout,
+            )
+        except (httpx.HTTPError, OSError, RuntimeError, TypeError, ValueError) as e:
+            return MessageSegment.text(f"请求数据失败：{e}")
+        if b64 is None:
+            return MessageSegment.text(f"无数据：{day_code[:4]}-{day_code[4:6]}-{day_code[6:]}")
+        return MessageSegment.image(f"base64://{b64}")
+
     period = normalize_period_arg(raw)
     if not period:
         return MessageSegment.text(
-            "参数格式不正确，请使用 YYYY、YYYYMM 或 YYYY-MM，例如：2026、202509 或 2025-09"
+            "参数格式不正确，请使用 YYYY、YYYYMM、YYYY-MM 或 YYYYMMDD，例如：2026、202509、2025-09 或 20250913"
         )
     month_codes, period_display = period
     query_source_text = build_query_source_text(event)
@@ -569,7 +586,7 @@ async def _handle_douchong(event: MessageEvent, arg: Message, *, api_base: str, 
 
 async def _handle_douchong_brawl(event: MessageEvent, arg: Message):
     """
-    /大乱斗斗虫 [YYYYMM|YYYY-MM]
+    /大乱斗斗虫 [YYYYMMDD|YYYYMM|YYYY-MM]
     拉取 VR + PSP 两份数据，合并后按 total 排序，绘图复用 render_table_image。
     """
     raw = ""
@@ -578,10 +595,27 @@ async def _handle_douchong_brawl(event: MessageEvent, arg: Message):
     except Exception:
         raw = str(arg).strip()
 
+    day_code = normalize_day_arg(raw)
+    if day_code:
+        try:
+            b64 = await build_brawl_daily_image(
+                vr_api_base=cfg.vr_gift_api_base,
+                psp_api_base=cfg.psp_gift_api_base,
+                day_code=day_code,
+                title="VRPSP大乱斗",
+                query_source_text=build_query_source_text(event),
+                timeout=cfg.vr_http_timeout,
+            )
+        except (httpx.HTTPError, OSError, RuntimeError, TypeError, ValueError) as e:
+            return MessageSegment.text(f"请求数据失败：{e}")
+        if b64 is None:
+            return MessageSegment.text(f"无数据：{day_code[:4]}-{day_code[4:6]}-{day_code[6:]}")
+        return MessageSegment.image(f"base64://{b64}")
+
     period = normalize_period_arg(raw)
     if not period:
         return MessageSegment.text(
-            "参数格式不正确，请使用 YYYY、YYYYMM 或 YYYY-MM，例如：2026、202601 或 2026-01"
+            "参数格式不正确，请使用 YYYY、YYYYMM、YYYY-MM 或 YYYYMMDD，例如：2026、202601、2026-01 或 20260913"
         )
     month_codes, period_display = period
     query_source_text = build_query_source_text(event)

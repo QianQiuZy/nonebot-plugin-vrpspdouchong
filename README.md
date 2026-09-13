@@ -7,7 +7,7 @@
 ## 功能
 
 - `VR斗虫` / `PSP斗虫` / `大乱斗斗虫`
-  - 查询指定月份或指定年份累计的礼物统计榜单
+  - 查询指定日期、月份或指定年份累计的礼物统计榜单
 - `VR开播` / `PSP开播` / `大乱斗开播`
   - 查询当前正在直播的房间列表
 - `查直播`
@@ -91,6 +91,7 @@ pip install httpx pillow fonttools regex
 - 留空：默认当前月
 - `YYYYMM`
 - `YYYY-MM`
+- `YYYYMMDD`（按日查询）
 - `YYYY`
 
 其中：
@@ -104,12 +105,13 @@ pip install httpx pillow fonttools regex
 /VR斗虫
 /VR斗虫 202603
 /VR斗虫 2026-03
+/VR斗虫 20260913
 /VR斗虫 2025
 /PSP斗虫 2024
 /大乱斗斗虫 2026
 ```
 
-榜单字段包括：
+月度 / 年度榜单字段包括：
 
 - 主播名称
 - 总计
@@ -122,6 +124,14 @@ pip install httpx pillow fonttools regex
 - 粉丝团数量
 - 盲盒数 / 盲盒盈亏
 - 礼物 / SC / 上舰金额
+
+按日查询使用 `/gift` 获取全部房间号，再逐个请求 `/gift/attention?room_id=房间号` 并筛选目标日期。日榜图片表格仅保留：
+
+- 主播名称
+- 舰长
+- SC
+- 礼物
+- 总计
 
 ### 开播列表
 

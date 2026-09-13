@@ -5,7 +5,7 @@ from .config import Config
 __plugin_meta__ = PluginMetadata(
     name="vr_gift",
     description="VR/PSP 礼物统计指令集合（斗虫）",
-    usage="/VR斗虫 [YYYYMM|YYYY-MM]\n/PSP斗虫 [YYYYMM|YYYY-MM]",
+    usage="/VR斗虫 [YYYYMMDD|YYYYMM|YYYY-MM]\n/PSP斗虫 [YYYYMMDD|YYYYMM|YYYY-MM]\n/大乱斗斗虫 [YYYYMMDD|YYYYMM|YYYY-MM]",
     config=Config,
 )
 
