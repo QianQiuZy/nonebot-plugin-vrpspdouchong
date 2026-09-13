@@ -246,6 +246,24 @@ def format_hourly_rate(total: Any, live_duration: Any) -> str:
     return f"{hourly_rate:.2f}"
 
 
+def _whale_dependency(row: Dict[str, Any]) -> Dict[str, Any]:
+    value = row.get("whale_dependency")
+    return value if isinstance(value, dict) else {}
+
+
+def has_whale_dependency_data(data_list: List[Dict[str, Any]]) -> bool:
+    return any(
+        _whale_dependency(row).get("status") in {"live", "archived", "partial"}
+        for row in data_list
+    )
+
+
+def format_whale_ratio(value: Any) -> str:
+    if value is None:
+        return "-"
+    return f"{_to_float(value) * 100:.1f}%"
+
+
 def build_query_source_text(event: MessageEvent) -> str:
     group_id = getattr(event, "group_id", None)
     user_id = getattr(event, "user_id", None)
@@ -354,6 +372,7 @@ def render_table_image(
     data_list: List[Dict[str, Any]],
     period_display: str,
     query_source_text: str,
+    show_whale_columns: bool = False,
 ) -> str:
     # ---------- 预处理：计算总计、格式化、排序 ----------
     total_live_duration_seconds = 0
@@ -393,7 +412,6 @@ def render_table_image(
         200,  # 直播时间
         180,
         100,  # 有效天
-        140,
         90,   # 舰长数量
         90,   # 提督数量
         90,   # 总督数量
@@ -403,11 +421,15 @@ def render_table_image(
         180,  # 礼物
         180,  # SC
         180,  # 上舰金额
+        140,
     ]
     headers = [
-        "主播名称", "总计", "粉丝数", "直播状态", "直播时间", "时薪", "有效天", "月付费数",
-        "舰长", "提督", "总督", "粉丝团", "盲盒数", "盲盒盈亏", "礼物", "SC", "上舰",
+        "主播名称", "总计", "粉丝数", "直播状态", "直播时间", "时薪", "有效天",
+        "舰长", "提督", "总督", "粉丝团", "盲盒数", "盲盒盈亏", "礼物", "SC", "上舰", "月付费数",
     ]
+    if show_whale_columns:
+        col_widths.extend([110, 110, 110, 110])
+        headers.extend(["top1", "top5", "top10", "top1%"])
 
     table_width = sum(col_widths) + 40
     table_height = row_height * (len(data_list) + 2) + 40
@@ -467,7 +489,6 @@ def render_table_image(
             (str(d.get("duration_fmt", "")), Color.BLACK),
             (format_hourly_rate(d.get("total", 0), d.get("live_duration", "00:00:00")), Color.BLACK),
             (str(d.get("effective_days", "")), Color.BLACK),
-            (str(_to_int(d.get("payer_count", 0))), Color.BLACK),
 
             (format_count(d.get("guard_1")), Color.BLACK),
             (format_count(d.get("guard_2")), Color.BLACK),
@@ -479,7 +500,16 @@ def render_table_image(
             (f"{_to_float(d.get('gift', 0)):.1f}", Color.BLACK),
             (f"{_to_float(d.get('super_chat', 0)):.1f}", Color.BLACK),
             (f"{_to_float(d.get('guard', 0)):.1f}", Color.BLACK),
+            (str(_to_int(d.get("payer_count", 0))), Color.BLACK),
         ]
+        if show_whale_columns:
+            whale = _whale_dependency(d)
+            fields.extend([
+                (format_whale_ratio(whale.get("top1")), Color.BLACK),
+                (format_whale_ratio(whale.get("top5")), Color.BLACK),
+                (format_whale_ratio(whale.get("top10")), Color.BLACK),
+                (format_whale_ratio(whale.get("top1_percent")), Color.BLACK),
+            ])
 
         bg = Color.LIGHTGRAY if (idx % 2 == 0) else Color.WHITE
         pic.draw_rounded_rectangle(origin_x, cur_y, table_width - 40, row_height, 0, bg)
@@ -510,7 +540,10 @@ def render_table_image(
         (f"{total_gift:.1f}", Color.BLACK),
         (f"{total_sc:.1f}", Color.BLACK),
         (f"{total_guard:.1f}", Color.BLACK),
+        ("", Color.BLACK),
     ]
+    if show_whale_columns:
+        total_fields.extend([("", Color.BLACK)] * 4)
     cur_x = origin_x + 10
     for w, (text, txt_color) in zip(col_widths, total_fields):
         pic.set_pos(cur_x, cur_y + 18).draw_text(str(text), [txt_color])
@@ -577,7 +610,13 @@ async def _handle_douchong(event: MessageEvent, arg: Message, *, api_base: str, 
         apply_live_duration_calc(data_list)
 
     try:
-        b64 = render_table_image(title, data_list, period_display, query_source_text)
+        b64 = render_table_image(
+            title,
+            data_list,
+            period_display,
+            query_source_text,
+            show_whale_columns=len(month_codes) == 1 and has_whale_dependency_data(data_list),
+        )
     except Exception as e:
         logger.exception("render_table_image failed")
         return MessageSegment.text(f"生成图片失败：{e}")
@@ -650,7 +689,13 @@ async def _handle_douchong_brawl(event: MessageEvent, arg: Message):
         apply_live_duration_calc(data_list)
 
     try:
-        b64 = render_table_image(title, data_list, period_display, query_source_text)
+        b64 = render_table_image(
+            title,
+            data_list,
+            period_display,
+            query_source_text,
+            show_whale_columns=len(month_codes) == 1 and has_whale_dependency_data(data_list),
+        )
     except Exception as e:
         logger.exception("render_table_image failed")
         return MessageSegment.text(f"生成图片失败：{e}")
