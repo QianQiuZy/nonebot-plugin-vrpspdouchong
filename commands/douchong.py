@@ -534,12 +534,12 @@ def render_table_image(
         ("", Color.BLACK),
         ("", Color.BLACK),
         ("", Color.BLACK),
-        ("", Color.BLACK),
         (str(total_blind_box_count), Color.BLACK),
         (f"{total_blind_box_profit:.1f}", Color.BLACK),
         (f"{total_gift:.1f}", Color.BLACK),
         (f"{total_sc:.1f}", Color.BLACK),
         (f"{total_guard:.1f}", Color.BLACK),
+        ("", Color.BLACK),
         ("", Color.BLACK),
     ]
     if show_whale_columns:
