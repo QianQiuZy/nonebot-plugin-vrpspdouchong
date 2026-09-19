@@ -23,7 +23,8 @@ _PACKAGE = importlib.util.module_from_spec(_PACKAGE_SPEC)
 sys.modules[_PACKAGE_NAME] = _PACKAGE
 _PACKAGE_SPEC.loader.exec_module(_PACKAGE)
 
-from nonebot_plugin_vrpspdouchong.commands import query
+douchong = importlib.import_module(f"{_PACKAGE_NAME}.commands.douchong")
+query = importlib.import_module(f"{_PACKAGE_NAME}.commands.query")
 
 
 class _Event:
@@ -71,3 +72,48 @@ def test_forward_nodes_reference_preuploaded_messages_for_napcat(tmp_path: Path,
         assert nodes[1].data["id"] == "9001"
 
     anyio.run(run)
+
+
+def test_douchong_sends_both_charts_as_one_forward_message(tmp_path: Path, monkeypatch) -> None:
+    forwarded: list[tuple[str, list[Path], str]] = []
+
+    def save_image(
+        image_b64: str,
+        *,
+        anchor_name: str,
+        page_no: int,
+        total_pages: int,
+    ) -> Path:
+        image_path = tmp_path / f"{page_no}-{total_pages}.png"
+        image_path.write_text(image_b64)
+        return image_path
+
+    async def send_forward(
+        bot: object,
+        event: object,
+        *,
+        title: str,
+        image_paths: list[Path],
+        anchor_name: str = "",
+        item_label: str = "页",
+    ) -> None:
+        forwarded.append((title, image_paths, item_label))
+
+    monkeypatch.setattr(douchong, "_save_sc_image_file", save_image)
+    monkeypatch.setattr(douchong, "_send_forward_images", send_forward)
+
+    async def run() -> None:
+        await douchong.send_douchong_images(
+            _Bot(),
+            _Event(),
+            title="VR斗虫",
+            period_display="2026-09",
+            images=["chart-1", "chart-2"],
+        )
+
+    anyio.run(run)
+
+    assert len(forwarded) == 1
+    assert forwarded[0][0] == "VR斗虫"
+    assert [path.read_text() for path in forwarded[0][1]] == ["chart-1", "chart-2"]
+    assert forwarded[0][2] == "张"

@@ -23,15 +23,22 @@ _PACKAGE = importlib.util.module_from_spec(_PACKAGE_SPEC)
 sys.modules[_PACKAGE_NAME] = _PACKAGE
 _PACKAGE_SPEC.loader.exec_module(_PACKAGE)
 
-from nonebot_plugin_vrpspdouchong.commands import douchong
-from nonebot_plugin_vrpspdouchong.commands.douchong import (
-    format_whale_ratio,
-    has_whale_dependency_data,
-    render_table_image,
-)
+douchong = importlib.import_module(f"{_PACKAGE_NAME}.commands.douchong")
+_douchong_table = importlib.import_module(f"{_PACKAGE_NAME}.commands.douchong_table")
+PRIMARY_TABLE_HEADERS = getattr(_douchong_table, "PRIMARY_TABLE_HEADERS")
+build_primary_total_row = getattr(_douchong_table, "build_primary_total_row")
+build_secondary_headers = getattr(_douchong_table, "build_secondary_headers")
+format_danmaku_ratio = getattr(_douchong_table, "format_danmaku_ratio")
+format_whale_ratio = getattr(_douchong_table, "format_whale_ratio")
+has_danmaku_role_data = getattr(_douchong_table, "has_danmaku_role_data")
+has_whale_dependency_data = getattr(_douchong_table, "has_whale_dependency_data")
+render_table_images = getattr(_douchong_table, "render_table_images")
 
 
-def _row(whale_dependency: object) -> dict[str, object]:
+def _row(
+    whale_dependency: object,
+    danmaku: object | None = None,
+) -> dict[str, object]:
     return {
         "anchor_name": "主播A",
         "gift": 1,
@@ -39,6 +46,7 @@ def _row(whale_dependency: object) -> dict[str, object]:
         "super_chat": 3,
         "live_duration": "01:00:00",
         "whale_dependency": whale_dependency,
+        "danmaku": danmaku,
     }
 
 
@@ -52,7 +60,86 @@ def test_unavailable_whale_dependency_hides_columns() -> None:
     assert has_whale_dependency_data([_row({"status": "live"})])
 
 
-def test_monthly_render_adds_whale_columns_only_when_enabled() -> None:
+def test_danmaku_ratio_uses_total_and_one_decimal_place() -> None:
+    assert format_danmaku_ratio(231, 1000) == "23.1%"
+    assert format_danmaku_ratio(None, 1000) == "-"
+    assert format_danmaku_ratio(0, 0) == "0.0%"
+
+
+def test_all_null_role_counts_hide_only_the_four_role_columns() -> None:
+    row = _row(
+        {"status": "unavailable"},
+        {
+            "total": 100,
+            "normal": None,
+            "captain": None,
+            "admiral": None,
+            "governor": None,
+        },
+    )
+
+    assert not has_danmaku_role_data([row])
+    assert build_secondary_headers([row], show_monthly_details=True) == (
+        "主播名称",
+        "舰长",
+        "提督",
+        "总督",
+        "粉丝团",
+        "月付费数",
+        "弹幕总数",
+    )
+
+
+def test_monthly_secondary_headers_include_whales_and_role_ratios() -> None:
+    row = _row(
+        {"status": "live"},
+        {"total": 100, "normal": 70, "captain": 20, "admiral": 8, "governor": 2},
+    )
+
+    assert build_secondary_headers([row], show_monthly_details=True) == (
+        "主播名称",
+        "舰长",
+        "提督",
+        "总督",
+        "粉丝团",
+        "月付费数",
+        "top1",
+        "top5",
+        "top10",
+        "top1%",
+        "弹幕总数",
+        "普通弹幕",
+        "舰长弹幕",
+        "提督弹幕",
+        "总督弹幕",
+    )
+
+
+def test_annual_secondary_headers_hide_whale_and_all_danmaku_columns() -> None:
+    row = _row(
+        {"status": "live"},
+        {"total": 100, "normal": 70, "captain": 20, "admiral": 8, "governor": 2},
+    )
+
+    assert build_secondary_headers([row], show_monthly_details=False) == (
+        "主播名称",
+        "舰长",
+        "提督",
+        "总督",
+        "粉丝团",
+        "月付费数",
+    )
+
+
+def test_annual_period_stays_annual_when_january_has_only_one_month(monkeypatch) -> None:
+    monkeypatch.setattr(douchong, "build_year_month_codes", lambda year: [f"{year}01"])
+
+    period = douchong.normalize_period_arg("2026")
+
+    assert period == (["202601"], "2026年 1-1月累计", False)
+
+
+def test_monthly_render_splits_the_requested_columns_into_two_images() -> None:
     row = _row(
         {
             "status": "live",
@@ -60,53 +147,58 @@ def test_monthly_render_adds_whale_columns_only_when_enabled() -> None:
             "top5": 0.2,
             "top10": 0.3,
             "top1_percent": 0.04,
-        }
+        },
+        {"total": 100, "normal": 70, "captain": 20, "admiral": 8, "governor": 2},
     )
-    without_whales = Image.open(
-        io.BytesIO(
-            base64.b64decode(
-                render_table_image("VR斗虫", [dict(row)], "2026-09", "测试", False)
-            )
-        )
+    images = render_table_images(
+        "VR斗虫",
+        [dict(row)],
+        "2026-09",
+        "测试",
+        show_monthly_details=True,
     )
-    with_whales = Image.open(
-        io.BytesIO(
-            base64.b64decode(
-                render_table_image("VR斗虫", [dict(row)], "2026-09", "测试", True)
-            )
-        )
+
+    decoded = [Image.open(io.BytesIO(base64.b64decode(image))) for image in images]
+    assert PRIMARY_TABLE_HEADERS == (
+        "主播名称",
+        "总计",
+        "粉丝数",
+        "直播状态",
+        "直播时间",
+        "时薪",
+        "有效天",
+        "盲盒数",
+        "盲盒盈亏",
+        "礼物",
+        "SC",
+        "上舰",
+        "月付费数",
     )
-    assert with_whales.width == without_whales.width + 440
+    assert len(decoded) == 2
+    assert decoded[0].width == 2240
+    assert decoded[1].width == 2010
+    for image in decoded:
+        bottom_strip = image.crop((0, image.height - 10, image.width, image.height))
+        assert bottom_strip.getextrema() == ((255, 255), (255, 255), (255, 255), (255, 255))
 
 
-def test_monthly_header_places_payer_count_after_guard_amount(monkeypatch) -> None:
-    drawn_texts: list[str] = []
+def test_primary_image_keeps_the_existing_total_values() -> None:
+    total_row = build_primary_total_row(
+        [_row({"status": "unavailable"})],
+    )
 
-    class Recorder:
-        def __init__(self, *args, **kwargs):
-            pass
-
-        def set_pos(self, *args, **kwargs):
-            return self
-
-        def draw_rounded_rectangle(self, *args, **kwargs):
-            return self
-
-        def draw_text(self, text, *args, **kwargs):
-            if isinstance(text, str):
-                drawn_texts.append(text)
-            return self
-
-        def draw_text_right(self, *args, **kwargs):
-            return self
-
-        def crop_and_paste_bottom(self):
-            return self
-
-        def base64(self):
-            return "test"
-
-    monkeypatch.setattr(douchong, "PicGenerator", Recorder)
-    douchong.render_table_image("VR斗虫", [_row({"status": "unavailable"})], "2026-09", "测试")
-
-    assert drawn_texts.index("上舰") < drawn_texts.index("月付费数")
+    assert total_row == (
+        "合计",
+        "6.0",
+        "",
+        "",
+        "1.0小时",
+        "6.00",
+        "",
+        "0",
+        "0.0",
+        "1.0",
+        "3.0",
+        "2.0",
+        "",
+    )
