@@ -291,6 +291,10 @@ async def send_douchong_images(
     period_display: str,
     images: list[str],
 ) -> None:
+    if len(images) == 1:
+        await bot.send(event, MessageSegment.image(f"base64://{images[0]}"))
+        return
+
     image_paths = [
         _save_sc_image_file(
             image,

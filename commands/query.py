@@ -367,7 +367,7 @@ def render_live_sessions_image(
 # ========================= ③ 查粉丝：查询函数 =========================
 AttentionRow = Tuple[
     str,
-    int,
+    Optional[int],
     Optional[int],
     Optional[int],
     Optional[int],
@@ -390,6 +390,27 @@ def _format_snapshot_count(value: Optional[int]) -> str:
     return "0" if value is None else str(value)
 
 
+def _format_attention_count(value: Optional[int]) -> str:
+    return "-" if value is None or value == 0 else str(value)
+
+
+def _format_guard_count(value: Optional[int]) -> str:
+    return "-" if value is None else str(value)
+
+
+def _format_fans_count(value: Optional[int]) -> str:
+    return "-" if value is None else str(value)
+
+
+def _attention_delta(attention_rows: List[AttentionRow]) -> int:
+    valid_counts = [
+        count
+        for _date, count, *_rest in attention_rows
+        if count is not None and count != 0
+    ]
+    return valid_counts[-1] - valid_counts[0] if len(valid_counts) >= 2 else 0
+
+
 async def query_attention_snapshots(*, base: str, room_id: str, month_code: str) -> List[AttentionRow]:
     url = f"{base}/attention?room_id={room_id}&month={month_code}"
     payload = await _fetch_json(url)
@@ -409,8 +430,6 @@ async def query_attention_snapshots(*, base: str, room_id: str, month_code: str)
         if not re.fullmatch(r"\d{8}", date_text):
             continue
         attention = _parse_optional_count(item.get("attention"))
-        if attention is None:
-            continue
         rows.append(
             (
                 date_text,
@@ -488,11 +507,11 @@ def render_attention_image(
 
             cells = [
                 _format_attention_date(date_code),
-                str(count),
-                _format_snapshot_count(guard_1),
-                _format_snapshot_count(guard_2),
-                _format_snapshot_count(guard_3),
-                _format_snapshot_count(fans_count),
+                _format_attention_count(count),
+                _format_guard_count(guard_1),
+                _format_guard_count(guard_2),
+                _format_guard_count(guard_3),
+                _format_fans_count(fans_count),
                 _format_snapshot_count(payer_count),
                 _format_snapshot_count(steel_coin_count),
             ]
@@ -506,10 +525,7 @@ def render_attention_image(
         pic.set_pos(origin_x + 10, cur_y + 18).draw_text("（无记录）", [Color.BLACK])
         cur_y += row_height
 
-    if len(attention_rows) >= 2:
-        fans_delta = attention_rows[-1][1] - attention_rows[0][1]
-    else:
-        fans_delta = 0
+    fans_delta = _attention_delta(attention_rows)
 
     pic.draw_rounded_rectangle(origin_x, cur_y, table_width - 40, row_height, 0, Color.LIGHTGRAY)
     cur_x = origin_x + 10
@@ -517,7 +533,7 @@ def render_attention_image(
         pic.set_pos(cur_x, cur_y + 18).draw_text(txt, [Color.BLACK])
         cur_x += w
 
-    pic.set_pos(canvas_width - 220, canvas_height - 40)
+    pic.set_pos(canvas_width - 220, canvas_height - 60)
     pic.draw_text_right(0, "Designed by 开发猫", Color.GRAY)
 
     pic.crop_and_paste_bottom()

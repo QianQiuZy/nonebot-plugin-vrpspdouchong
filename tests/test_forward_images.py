@@ -6,10 +6,9 @@ from pathlib import Path
 
 import anyio
 import nonebot
+from nonebot.adapters.onebot.v11 import Message, MessageSegment
 
 nonebot.init()
-
-from nonebot.adapters.onebot.v11 import Message
 
 _PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 _PACKAGE_NAME = "nonebot_plugin_vrpspdouchong"
@@ -42,6 +41,9 @@ class _Bot:
         if action == "send_private_msg":
             return {"message_id": 9001}
         return None
+
+    async def send(self, event: _Event, message: MessageSegment) -> None:
+        self.messages.append(("send", {"event": event, "message": message}))
 
 
 def test_forward_nodes_reference_preuploaded_messages_for_napcat(tmp_path: Path, monkeypatch) -> None:
@@ -89,8 +91,8 @@ def test_douchong_sends_both_charts_as_one_forward_message(tmp_path: Path, monke
         return image_path
 
     async def send_forward(
-        bot: object,
-        event: object,
+        bot: _Bot,
+        event: _Event,
         *,
         title: str,
         image_paths: list[Path],
@@ -117,3 +119,53 @@ def test_douchong_sends_both_charts_as_one_forward_message(tmp_path: Path, monke
     assert forwarded[0][0] == "VR斗虫"
     assert [path.read_text() for path in forwarded[0][1]] == ["chart-1", "chart-2"]
     assert forwarded[0][2] == "张"
+
+
+def test_douchong_sends_one_chart_as_a_normal_image(monkeypatch) -> None:
+    saved_images: list[str] = []
+    forwarded: list[list[Path]] = []
+
+    def save_image(
+        image_b64: str,
+        *,
+        anchor_name: str,
+        page_no: int,
+        total_pages: int,
+    ) -> Path:
+        saved_images.append(image_b64)
+        return Path(f"{anchor_name}-{page_no}-{total_pages}.png")
+
+    async def send_forward(
+        bot: object,
+        event: object,
+        *,
+        title: str,
+        image_paths: list[Path],
+        anchor_name: str = "",
+        item_label: str = "页",
+    ) -> None:
+        forwarded.append(image_paths)
+
+    monkeypatch.setattr(douchong, "_save_sc_image_file", save_image)
+    monkeypatch.setattr(douchong, "_send_forward_images", send_forward)
+
+    async def run() -> _Bot:
+        bot = _Bot()
+        await douchong.send_douchong_images(
+            bot,
+            _Event(),
+            title="VR斗虫",
+            period_display="2026-08",
+            images=["chart-1"],
+        )
+        return bot
+
+    bot = anyio.run(run)
+
+    assert saved_images == []
+    assert forwarded == []
+    action, kwargs = bot.messages[0]
+    assert action == "send"
+    content = Message(kwargs["message"])
+    image_segment = next(segment for segment in content if segment.type == "image")
+    assert image_segment.data["file"] == "base64://chart-1"

@@ -31,6 +31,7 @@ build_secondary_headers = getattr(_douchong_table, "build_secondary_headers")
 format_danmaku_ratio = getattr(_douchong_table, "format_danmaku_ratio")
 format_whale_ratio = getattr(_douchong_table, "format_whale_ratio")
 has_danmaku_role_data = getattr(_douchong_table, "has_danmaku_role_data")
+has_danmaku_data = getattr(_douchong_table, "has_danmaku_data")
 has_whale_dependency_data = getattr(_douchong_table, "has_whale_dependency_data")
 render_table_images = getattr(_douchong_table, "render_table_images")
 
@@ -45,6 +46,9 @@ def _row(
         "guard": 2,
         "super_chat": 3,
         "live_duration": "01:00:00",
+        "guard_1": 1,
+        "guard_2": 2,
+        "guard_3": 3,
         "whale_dependency": whale_dependency,
         "danmaku": danmaku,
     }
@@ -78,6 +82,7 @@ def test_all_null_role_counts_hide_only_the_four_role_columns() -> None:
         },
     )
 
+    assert has_danmaku_data([row])
     assert not has_danmaku_role_data([row])
     assert build_secondary_headers([row], show_monthly_details=True) == (
         "主播名称",
@@ -115,20 +120,42 @@ def test_monthly_secondary_headers_include_whales_and_role_ratios() -> None:
     )
 
 
-def test_annual_secondary_headers_hide_whale_and_all_danmaku_columns() -> None:
+def test_null_guard_counts_hide_their_columns_independently() -> None:
     row = _row(
-        {"status": "live"},
-        {"total": 100, "normal": 70, "captain": 20, "admiral": 8, "governor": 2},
+        {"status": "unavailable"},
+        {"total": 100, "normal": None, "captain": None, "admiral": None, "governor": None},
+    )
+    row["guard_1"] = None
+    row["guard_3"] = None
+
+    headers = build_secondary_headers([row], show_monthly_details=True)
+    images = render_table_images(
+        "VR斗虫",
+        [dict(row)],
+        "2026-09",
+        "测试",
+        show_monthly_details=True,
     )
 
-    assert build_secondary_headers([row], show_monthly_details=False) == (
+    assert headers == (
         "主播名称",
-        "舰长",
         "提督",
-        "总督",
         "粉丝团",
         "月付费数",
+        "弹幕总数",
     )
+    assert len(images) == 2
+    secondary = Image.open(io.BytesIO(base64.b64decode(images[1])))
+    assert secondary.width == 830
+
+
+def test_all_null_danmaku_fields_are_unavailable() -> None:
+    row = _row(
+        {"status": "unavailable"},
+        {"total": None, "normal": None, "captain": None, "admiral": None, "governor": None},
+    )
+
+    assert not has_danmaku_data([row])
 
 
 def test_annual_period_stays_annual_when_january_has_only_one_month(monkeypatch) -> None:
@@ -172,10 +199,9 @@ def test_monthly_render_splits_the_requested_columns_into_two_images() -> None:
         "礼物",
         "SC",
         "上舰",
-        "月付费数",
     )
     assert len(decoded) == 2
-    assert decoded[0].width == 2240
+    assert decoded[0].width == 2100
     assert decoded[1].width == 2010
     for image in decoded:
         bottom_strip = image.crop((0, image.height - 10, image.width, image.height))
@@ -200,5 +226,47 @@ def test_primary_image_keeps_the_existing_total_values() -> None:
         "1.0",
         "3.0",
         "2.0",
-        "",
     )
+
+
+def test_monthly_render_returns_only_primary_when_detail_sources_are_unavailable() -> None:
+    row = _row(
+        {
+            "status": "unavailable",
+            "top1": None,
+            "top5": None,
+            "top10": None,
+            "top1_percent": None,
+        },
+        {"total": None, "normal": None, "captain": None, "admiral": None, "governor": None},
+    )
+    row["guard_1"] = None
+    row["guard_2"] = None
+    row["guard_3"] = None
+
+    images = render_table_images(
+        "VR斗虫",
+        [dict(row)],
+        "2026-08",
+        "测试",
+        show_monthly_details=True,
+    )
+
+    assert len(images) == 1
+
+
+def test_annual_render_returns_only_primary_even_when_detail_sources_are_available() -> None:
+    row = _row(
+        {"status": "live", "top1": 0.1, "top5": 0.2, "top10": 0.3, "top1_percent": 0.04},
+        {"total": 100, "normal": 70, "captain": 20, "admiral": 8, "governor": 2},
+    )
+
+    images = render_table_images(
+        "VR斗虫",
+        [dict(row)],
+        "2026年 1-9月累计",
+        "测试",
+        show_monthly_details=False,
+    )
+
+    assert len(images) == 1
