@@ -27,6 +27,7 @@ douchong = importlib.import_module(f"{_PACKAGE_NAME}.commands.douchong")
 _douchong_table = importlib.import_module(f"{_PACKAGE_NAME}.commands.douchong_table")
 PRIMARY_TABLE_HEADERS = getattr(_douchong_table, "PRIMARY_TABLE_HEADERS")
 build_primary_total_row = getattr(_douchong_table, "build_primary_total_row")
+build_primary_headers = getattr(_douchong_table, "build_primary_headers")
 build_secondary_headers = getattr(_douchong_table, "build_secondary_headers")
 format_danmaku_ratio = getattr(_douchong_table, "format_danmaku_ratio")
 format_whale_ratio = getattr(_douchong_table, "format_whale_ratio")
@@ -166,6 +167,43 @@ def test_annual_period_stays_annual_when_january_has_only_one_month(monkeypatch)
     assert period == (["202601"], "2026年 1-1月累计", False)
 
 
+def test_live_status_is_only_enabled_for_the_current_month(monkeypatch) -> None:
+    monkeypatch.setattr(douchong, "current_month_code", lambda: "202609")
+
+    assert douchong.should_show_live_status(["202609"])
+    assert not douchong.should_show_live_status(["202608"])
+    assert not douchong.should_show_live_status(["202609", "202608"])
+
+
+def test_historical_primary_headers_and_image_hide_live_status() -> None:
+    row = _row({"status": "unavailable"}, {"total": None})
+
+    images = render_table_images(
+        "VR斗虫",
+        [dict(row)],
+        "2026-08",
+        "测试",
+        show_monthly_details=True,
+        show_live_status=False,
+    )
+
+    assert build_primary_headers(show_live_status=False) == (
+        "主播名称",
+        "总计",
+        "粉丝数",
+        "直播时间",
+        "时薪",
+        "有效天",
+        "盲盒数",
+        "盲盒盈亏",
+        "礼物",
+        "SC",
+        "上舰",
+    )
+    assert len(images) == 1
+    assert Image.open(io.BytesIO(base64.b64decode(images[0]))).width == 1950
+
+
 def test_monthly_render_splits_the_requested_columns_into_two_images() -> None:
     row = _row(
         {
@@ -267,6 +305,8 @@ def test_annual_render_returns_only_primary_even_when_detail_sources_are_availab
         "2026年 1-9月累计",
         "测试",
         show_monthly_details=False,
+        show_live_status=False,
     )
 
     assert len(images) == 1
+    assert Image.open(io.BytesIO(base64.b64decode(images[0]))).width == 1950

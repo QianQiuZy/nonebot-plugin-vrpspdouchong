@@ -90,6 +90,18 @@ def format_hourly_rate(total: Any, live_duration: Any) -> str:
     return f"{_to_float(total) / (duration_seconds / 3600):.2f}"
 
 
+def build_primary_headers(*, show_live_status: bool = True) -> tuple[str, ...]:
+    if show_live_status:
+        return PRIMARY_TABLE_HEADERS
+    return PRIMARY_TABLE_HEADERS[:3] + PRIMARY_TABLE_HEADERS[4:]
+
+
+def _primary_widths(*, show_live_status: bool) -> tuple[int, ...]:
+    if show_live_status:
+        return _PRIMARY_WIDTHS
+    return _PRIMARY_WIDTHS[:3] + _PRIMARY_WIDTHS[4:]
+
+
 def _mapping(value: Any) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
@@ -169,7 +181,11 @@ def _prepared_rows(data_list: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return sorted(prepared, key=lambda row: _to_float(row.get("total")), reverse=True)
 
 
-def build_primary_total_row(data_list: list[dict[str, Any]]) -> tuple[str, ...]:
+def build_primary_total_row(
+    data_list: list[dict[str, Any]],
+    *,
+    show_live_status: bool = True,
+) -> tuple[str, ...]:
     total_seconds = sum(_duration_to_seconds(row.get("live_duration", "00:00:00")) for row in data_list)
     total_box_count = sum(_to_int(row.get("blind_box_count")) for row in data_list)
     total_box_profit = sum(_to_float(row.get("blind_box_profit")) for row in data_list)
@@ -178,22 +194,38 @@ def build_primary_total_row(data_list: list[dict[str, Any]]) -> tuple[str, ...]:
     total_guard = sum(_to_float(row.get("guard")) for row in data_list)
     total = total_gift + total_sc + total_guard
     duration = _seconds_to_duration(total_seconds)
-    return (
-        "合计", f"{total:.1f}", "", "", format_duration(duration), format_hourly_rate(total, duration), "",
-        str(total_box_count), f"{total_box_profit:.1f}", f"{total_gift:.1f}", f"{total_sc:.1f}",
+    cells = ["合计", f"{total:.1f}", ""]
+    if show_live_status:
+        cells.append("")
+    cells.extend([
+        format_duration(duration),
+        format_hourly_rate(total, duration),
+        "",
+        str(total_box_count),
+        f"{total_box_profit:.1f}",
+        f"{total_gift:.1f}",
+        f"{total_sc:.1f}",
         f"{total_guard:.1f}",
-    )
+    ])
+    return tuple(cells)
 
 
-def _primary_rows(data_list: list[dict[str, Any]]) -> list[list[Cell]]:
+def _primary_rows(
+    data_list: list[dict[str, Any]],
+    *,
+    show_live_status: bool,
+) -> list[list[Cell]]:
     rows: list[list[Cell]] = []
     for row in data_list:
         is_live = _to_int(row.get("status")) == 1
-        rows.append([
+        cells: list[Cell] = [
             (str(row.get("anchor_name", "")), Color.BLACK),
             (f"{_to_float(row.get('total')):.1f}", Color.BLACK),
             (str(row.get("fans_fmt", "0")), Color.BLACK),
-            ("直播中" if is_live else "未开播", Color.DEEPSKYBLUE if is_live else Color.BLACK),
+        ]
+        if show_live_status:
+            cells.append(("直播中" if is_live else "未开播", Color.DEEPSKYBLUE if is_live else Color.BLACK))
+        cells.extend([
             (str(row.get("duration_fmt", "")), Color.BLACK),
             (format_hourly_rate(row.get("total"), row.get("live_duration")), Color.BLACK),
             (str(row.get("effective_days", "")), Color.BLACK),
@@ -203,6 +235,7 @@ def _primary_rows(data_list: list[dict[str, Any]]) -> list[list[Cell]]:
             (f"{_to_float(row.get('super_chat')):.1f}", Color.BLACK),
             (f"{_to_float(row.get('guard')):.1f}", Color.BLACK),
         ])
+        rows.append(cells)
     return rows
 
 
@@ -234,16 +267,17 @@ def render_table_images(
     query_source_text: str,
     *,
     show_monthly_details: bool,
+    show_live_status: bool = True,
 ) -> list[str]:
     prepared = _prepared_rows(data_list)
     primary_image = render_table_image(TableRender(
         title=f"{title}（流水概览）",
         period_display=period_display,
         query_source_text=query_source_text,
-        headers=PRIMARY_TABLE_HEADERS,
-        widths=_PRIMARY_WIDTHS,
-        rows=_primary_rows(prepared),
-        total_row=build_primary_total_row(prepared),
+        headers=build_primary_headers(show_live_status=show_live_status),
+        widths=_primary_widths(show_live_status=show_live_status),
+        rows=_primary_rows(prepared, show_live_status=show_live_status),
+        total_row=build_primary_total_row(prepared, show_live_status=show_live_status),
     ))
     if not show_monthly_details:
         return [primary_image]

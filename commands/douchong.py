@@ -266,6 +266,10 @@ def _is_current_year_period(month_codes: List[str]) -> bool:
     return all(_to_int(code[:4], 0) == current_year for code in month_codes)
 
 
+def should_show_live_status(month_codes: List[str]) -> bool:
+    return len(month_codes) == 1 and month_codes[0] == current_month_code()
+
+
 async def fetch_period_data(api_base: str, month_codes: List[str]) -> List[Dict[str, Any]]:
     """单月直出；多月聚合。"""
     if len(month_codes) == 1:
@@ -364,7 +368,7 @@ async def _handle_douchong(
     if not data_list:
         return MessageSegment.text(f"无数据：{period_display}")
 
-    # 单月保持动态时长；当年累计额外保留直播状态并动态增量时长
+    # 单月保持动态时长；当前年份累计也更新动态时长，直播状态仅当前月显示
     if len(month_codes) == 1 or _is_current_year_period(month_codes):
         apply_live_duration_calc(data_list)
 
@@ -375,6 +379,7 @@ async def _handle_douchong(
             period_display,
             query_source_text,
             show_monthly_details=show_monthly_details,
+            show_live_status=should_show_live_status(month_codes),
         )
     except (OSError, RuntimeError, TypeError, ValueError) as e:
         logger.exception("render_table_images failed")
@@ -454,7 +459,7 @@ async def _handle_douchong_brawl(
     if not data_list:
         return MessageSegment.text(f"无数据：{period_display}")
 
-    # 单月保持动态时长；当年累计额外保留直播状态并动态增量时长
+    # 单月保持动态时长；当前年份累计也更新动态时长，直播状态仅当前月显示
     if len(month_codes) == 1 or _is_current_year_period(month_codes):
         apply_live_duration_calc(data_list)
 
@@ -465,6 +470,7 @@ async def _handle_douchong_brawl(
             period_display,
             query_source_text,
             show_monthly_details=show_monthly_details,
+            show_live_status=should_show_live_status(month_codes),
         )
     except (OSError, RuntimeError, TypeError, ValueError) as e:
         logger.exception("render_table_images failed")
