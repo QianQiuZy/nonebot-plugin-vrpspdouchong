@@ -23,6 +23,7 @@ from nonebot.adapters.onebot.v11 import (
 from nonebot.params import CommandArg
 from nonebot.log import logger
 
+from ..api_client import get as api_get
 from ..config import Config
 from ..toolkit import PicGenerator, Color, timestamp_format
 
@@ -87,8 +88,7 @@ def _match_anchor(items: List[Dict[str, Any]], keyword: str) -> Optional[Dict[st
 
 async def _fetch_json(url: str) -> Any:
     async with httpx.AsyncClient(timeout=cfg.vr_http_timeout) as client:
-        resp = await client.get(url)
-        resp.raise_for_status()
+        resp = await api_get(client, url)
         return resp.json()
 
 
@@ -879,8 +879,7 @@ def _dedup_by_anchor_room(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 async def _fetch_month_list(client: httpx.AsyncClient, base: str, month_code: str) -> List[Dict[str, Any]]:
     url = f"{base}/by_month"
     try:
-        r = await client.get(url, params={"month": month_code})
-        r.raise_for_status()
+        r = await api_get(client, url, params={"month": month_code})
         data = r.json()
         if isinstance(data, list):
             return [x for x in data if isinstance(x, dict)]

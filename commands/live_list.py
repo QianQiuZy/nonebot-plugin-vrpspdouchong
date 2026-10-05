@@ -11,6 +11,7 @@ from nonebot import get_plugin_config, on_command
 from nonebot.adapters.onebot.v11 import MessageSegment, MessageEvent
 from nonebot.log import logger
 
+from ..api_client import get as api_get
 from ..config import Config
 from ..toolkit import PicGenerator, Color, timestamp_format
 
@@ -106,8 +107,7 @@ def _limit_text_by_px(pic: PicGenerator, text: str, max_px: int) -> str:
 
 async def _fetch_json_list(url: str) -> List[Dict[str, Any]]:
     async with httpx.AsyncClient(timeout=cfg.vr_http_timeout) as client:
-        resp = await client.get(url)
-        resp.raise_for_status()
+        resp = await api_get(client, url)
         data = resp.json()
 
     if not isinstance(data, list):

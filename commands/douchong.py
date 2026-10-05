@@ -11,6 +11,7 @@ from nonebot.adapters.onebot.v11 import Bot, Message, MessageEvent, MessageSegme
 from nonebot.log import logger
 from nonebot.params import CommandArg
 
+from ..api_client import get as api_get
 from ..config import Config
 from .douchong_daily import (
     build_brawl_daily_image,
@@ -194,8 +195,7 @@ def build_query_source_text(event: MessageEvent) -> str:
 async def fetch_month_data(api_base: str, month_code: str) -> List[Dict[str, Any]]:
     url = f"{api_base}/by_month?month={month_code}"
     async with httpx.AsyncClient(timeout=cfg.vr_http_timeout) as client:
-        resp = await client.get(url)
-        resp.raise_for_status()
+        resp = await api_get(client, url)
         data = resp.json()
 
     if not isinstance(data, list):

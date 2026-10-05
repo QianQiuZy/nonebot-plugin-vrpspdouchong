@@ -106,3 +106,29 @@ def test_render_daily_table_has_only_the_five_requested_columns() -> None:
     image = Image.open(io.BytesIO(base64.b64decode(image_b64)))
     assert DAILY_HEADERS == ("主播名称", "舰长", "SC", "礼物", "总计")
     assert image.width == 1320
+
+
+def test_fetch_daily_data_keeps_room_after_429_retry(monkeypatch) -> None:
+    from nonebot_plugin_vrpspdouchong import api_client
+
+    monkeypatch.setattr(api_client, "_limiter", api_client._RequestLimiter())
+    attempts = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/gift":
+            return httpx.Response(200, json=[{"room_id": 1, "anchor_name": "主播A"}])
+        attempts.append(str(request.url))
+        if len(attempts) == 1:
+            return httpx.Response(429)
+        return httpx.Response(
+            200, json={"attention": [{"date": "20260913", "gift": 10}]}
+        )
+
+    async def run() -> None:
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            rows = await fetch_daily_data(client, "https://example.test/gift", "20260913")
+        assert [(row.room_id, row.total) for row in rows] == [("1", 10.0)]
+
+    anyio.run(run)
+
+    assert attempts == ["https://example.test/gift/attention?room_id=1"] * 2

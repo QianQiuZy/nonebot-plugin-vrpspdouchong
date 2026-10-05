@@ -10,6 +10,7 @@ from typing import Any, Final
 import anyio
 import httpx
 
+from ..api_client import get as api_get
 from ..toolkit import Color, PicGenerator, timestamp_format
 
 DAILY_HEADERS: Final = ("主播名称", "舰长", "SC", "礼物", "总计")
@@ -105,8 +106,7 @@ async def _fetch_daily_row(
     limiter: anyio.CapacityLimiter,
 ) -> DailyGiftRow | None:
     async with limiter:
-        response = await client.get(f"{api_base}/attention", params={"room_id": _room_id(room)})
-    response.raise_for_status()
+        response = await api_get(client, f"{api_base}/attention", params={"room_id": _room_id(room)})
     return build_daily_row(room, response.json(), day_code)
 
 
@@ -116,8 +116,7 @@ async def fetch_daily_data(
     day_code: str,
 ) -> list[DailyGiftRow]:
     """Traverse /gift and collect matching /attention records for one day."""
-    response = await client.get(api_base)
-    response.raise_for_status()
+    response = await api_get(client, api_base)
     rooms = _room_list(response.json())
     rows: list[DailyGiftRow] = []
     limiter = anyio.CapacityLimiter(10)

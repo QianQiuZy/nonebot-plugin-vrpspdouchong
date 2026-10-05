@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 
 import anyio
+import httpx
 import nonebot
 from PIL import Image
 
@@ -102,3 +103,24 @@ def test_attention_image_footer_stays_inside_opaque_canvas() -> None:
     bottom_strip = image.crop((0, image.height - 10, image.width, image.height))
 
     assert bottom_strip.getextrema() == ((255, 255), (255, 255), (255, 255), (255, 255))
+
+
+def test_month_list_keeps_data_after_429_retry(monkeypatch) -> None:
+    from nonebot_plugin_vrpspdouchong import api_client
+
+    monkeypatch.setattr(api_client, "_limiter", api_client._RequestLimiter())
+    attempts = []
+    expected = [{"room_id": 1, "anchor_name": "主播A"}]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        attempts.append(str(request.url))
+        return httpx.Response(429 if len(attempts) == 1 else 200, json=expected)
+
+    async def run() -> None:
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            rows = await query._fetch_month_list(client, "https://example.test/gift", "202609")
+        assert rows == expected
+
+    anyio.run(run)
+
+    assert attempts == ["https://example.test/gift/by_month?month=202609"] * 2
