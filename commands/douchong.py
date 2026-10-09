@@ -13,6 +13,7 @@ from nonebot.params import CommandArg
 
 from ..api_client import get as api_get
 from ..config import Config
+from ..message_sender import finish as finish_message, send as send_message
 from .douchong_daily import (
     build_brawl_daily_image,
     build_daily_image,
@@ -296,7 +297,7 @@ async def send_douchong_images(
     images: list[str],
 ) -> None:
     if len(images) == 1:
-        await bot.send(event, MessageSegment.image(f"base64://{images[0]}"))
+        await send_message(bot, event, MessageSegment.image(f"base64://{images[0]}"))
         return
 
     image_paths = [
@@ -496,7 +497,7 @@ async def _(bot: Bot, event: MessageEvent, arg: Message = CommandArg()):
     )
     if seg is None:
         await VR斗虫.finish()
-    await VR斗虫.finish(seg)
+    await finish_message(VR斗虫, seg)
 
 
 @PSP斗虫.handle()
@@ -510,11 +511,11 @@ async def _(bot: Bot, event: MessageEvent, arg: Message = CommandArg()):
     )
     if seg is None:
         await PSP斗虫.finish()
-    await PSP斗虫.finish(seg)
+    await finish_message(PSP斗虫, seg)
 
 @大乱斗斗虫.handle()
 async def _(bot: Bot, event: MessageEvent, arg: Message = CommandArg()):
     seg = await _handle_douchong_brawl(bot, event, arg)
     if seg is None:
         await 大乱斗斗虫.finish()
-    await 大乱斗斗虫.finish(seg)
+    await finish_message(大乱斗斗虫, seg)

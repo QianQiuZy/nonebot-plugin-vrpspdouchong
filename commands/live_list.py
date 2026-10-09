@@ -13,6 +13,7 @@ from nonebot.log import logger
 
 from ..api_client import get as api_get
 from ..config import Config
+from ..message_sender import finish as finish_message
 from ..toolkit import PicGenerator, Color, timestamp_format
 
 cfg = get_plugin_config(Config)
@@ -285,7 +286,7 @@ async def _(event: MessageEvent):
         user_id=getattr(event, "user_id", 0),
         query_source_text=build_query_source_text(event),
     )
-    await VR开播.finish(seg)
+    await finish_message(VR开播, seg)
 
 
 @PSP开播.handle()
@@ -296,7 +297,7 @@ async def _(event: MessageEvent):
         user_id=getattr(event, "user_id", 0),
         query_source_text=build_query_source_text(event),
     )
-    await PSP开播.finish(seg)
+    await finish_message(PSP开播, seg)
 
 @大乱斗开播.handle()
 async def _(event: MessageEvent):
@@ -307,4 +308,4 @@ async def _(event: MessageEvent):
         user_id=getattr(event, "user_id", 0),
         query_source_text=build_query_source_text(event),
     )
-    await 大乱斗开播.finish(seg)
+    await finish_message(大乱斗开播, seg)

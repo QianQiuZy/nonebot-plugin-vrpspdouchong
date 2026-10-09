@@ -25,6 +25,7 @@ from nonebot.log import logger
 
 from ..api_client import get as api_get
 from ..config import Config
+from ..message_sender import finish as finish_message
 from ..toolkit import PicGenerator, Color, timestamp_format
 
 cfg = get_plugin_config(Config)
@@ -1024,7 +1025,7 @@ async def _(bot: Bot, event: MessageEvent, arg: Message = CommandArg()):
         sessions=sessions,
         query_source_text=query_source_text,
     )
-    await 查直播.finish(MessageSegment.image(f"base64://{b64}"))
+    await finish_message(查直播, MessageSegment.image(f"base64://{b64}"))
 
 
 @查SC.handle()
@@ -1063,7 +1064,7 @@ async def _(bot: Bot, event: MessageEvent, arg: Message = CommandArg()):
         image_path = image_paths[0] if image_paths else None
         if not image_path:
             await 查SC.finish(MessageSegment.text("本月暂无 SC 记录"))
-        await 查SC.finish(MessageSegment.image(_sc_image_uri(image_path)))
+        await finish_message(查SC, MessageSegment.image(_sc_image_uri(image_path)))
     else:
         await _send_forward_images(bot, event, title="查SC", image_paths=image_paths, anchor_name=anchor_name)
         await 查SC.finish()
@@ -1103,7 +1104,7 @@ async def _(bot: Bot, event: MessageEvent, arg: Message = CommandArg()):
         attention_rows=attention_rows,
         query_source_text=query_source_text,
     )
-    await 查粉丝.finish(MessageSegment.image(f"base64://{b64}"))
+    await finish_message(查粉丝, MessageSegment.image(f"base64://{b64}"))
 
 @查流水.handle()
 async def _(bot: Bot, event: GroupMessageEvent | PrivateMessageEvent, arg: Message = CommandArg()):
@@ -1134,4 +1135,4 @@ async def _(bot: Bot, event: GroupMessageEvent | PrivateMessageEvent, arg: Messa
         sc_value=match.get("super_chat", 0),
     )
 
-    await 查流水.finish(MessageSegment.image(f"base64://{b64}"))
+    await finish_message(查流水, MessageSegment.image(f"base64://{b64}"))

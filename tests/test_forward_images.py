@@ -6,7 +6,9 @@ from pathlib import Path
 
 import anyio
 import nonebot
+import pytest
 from nonebot.adapters.onebot.v11 import Message, MessageSegment
+from nonebot.exception import FinishedException
 
 nonebot.init()
 
@@ -24,10 +26,21 @@ _PACKAGE_SPEC.loader.exec_module(_PACKAGE)
 
 douchong = importlib.import_module(f"{_PACKAGE_NAME}.commands.douchong")
 query = importlib.import_module(f"{_PACKAGE_NAME}.commands.query")
+sender = importlib.import_module(f"{_PACKAGE_NAME}.message_sender")
+live_list = importlib.import_module(f"{_PACKAGE_NAME}.commands.live_list")
+
+
+@pytest.fixture(autouse=True)
+def reset_image_limiter(monkeypatch):
+    monkeypatch.setattr(sender, "_limiter", sender._ImageLimiter())
 
 
 class _Event:
     group_id = 123
+
+
+class _PrivateEvent:
+    user_id = 789
 
 
 class _Bot:
@@ -46,16 +59,23 @@ class _Bot:
         self.messages.append(("send", {"event": event, "message": message}))
 
 
-def test_forward_nodes_reference_preuploaded_messages_for_napcat(tmp_path: Path, monkeypatch) -> None:
+@pytest.mark.parametrize("private", [False, True])
+def test_forward_nodes_reference_preuploaded_messages_for_napcat(tmp_path: Path, monkeypatch, private: bool) -> None:
     image_path = tmp_path / "detail.png"
     image_path.write_bytes(b"png-data")
     monkeypatch.setattr(query, "GroupMessageEvent", _Event)
+    monkeypatch.setattr(query, "PrivateMessageEvent", _PrivateEvent)
+
+    async def must_not_wait():
+        pytest.fail("Forward messages and their preuploads must bypass image pacing")
+
+    monkeypatch.setattr(sender._limiter, "wait", must_not_wait)
 
     async def run() -> None:
         bot = _Bot()
         await query._send_forward_images(
             bot,
-            _Event(),
+            _PrivateEvent() if private else _Event(),
             title="查直播详细",
             image_paths=[image_path],
             anchor_name="主播A",
@@ -68,7 +88,7 @@ def test_forward_nodes_reference_preuploaded_messages_for_napcat(tmp_path: Path,
         assert image_segment.data["file"].startswith("base64://")
 
         forward_action, forward_kwargs = bot.messages[1]
-        assert forward_action == "send_forward_msg"
+        assert forward_action == ("send_private_forward_msg" if private else "send_forward_msg")
         nodes = forward_kwargs["messages"]
         assert nodes[1].type == "node"
         assert nodes[1].data["id"] == "9001"
@@ -148,6 +168,12 @@ def test_douchong_sends_one_chart_as_a_normal_image(monkeypatch) -> None:
 
     monkeypatch.setattr(douchong, "_save_sc_image_file", save_image)
     monkeypatch.setattr(douchong, "_send_forward_images", send_forward)
+    waits = []
+
+    async def wait():
+        waits.append(True)
+
+    monkeypatch.setattr(sender._limiter, "wait", wait)
 
     async def run() -> _Bot:
         bot = _Bot()
@@ -164,8 +190,47 @@ def test_douchong_sends_one_chart_as_a_normal_image(monkeypatch) -> None:
 
     assert saved_images == []
     assert forwarded == []
+    assert waits == [True]
     action, kwargs = bot.messages[0]
     assert action == "send"
     content = Message(kwargs["message"])
     image_segment = next(segment for segment in content if segment.type == "image")
     assert image_segment.data["file"] == "base64://chart-1"
+
+
+def test_live_list_commands_and_douchong_share_image_pacing(monkeypatch) -> None:
+    now = [100.0]
+    starts = []
+
+    async def sleep(delay):
+        now[0] += delay
+
+    async def handle_live_list(**kwargs):
+        return MessageSegment.image("base64://live-list")
+
+    async def send(message, **kwargs):
+        starts.append(now[0])
+
+    class Bot(_Bot):
+        async def send(self, event, message):
+            starts.append(now[0])
+            await super().send(event, message)
+
+    monkeypatch.setattr(sender, "monotonic", lambda: now[0])
+    monkeypatch.setattr(sender, "sleep", sleep)
+    monkeypatch.setattr(live_list, "_handle_live_list", handle_live_list)
+    monkeypatch.setattr(live_list, "_handle_live_list_brawl", handle_live_list)
+    matchers = (live_list.VR开播, live_list.PSP开播, live_list.大乱斗开播)
+    for matcher in matchers:
+        monkeypatch.setattr(matcher, "send", send)
+
+    async def run():
+        for matcher in matchers:
+            with pytest.raises(FinishedException):
+                await matcher.handlers[0].call(event=_Event())
+        await douchong.send_douchong_images(
+            Bot(), _PrivateEvent(), title="VR斗虫", period_display="2026-10", images=["chart"]
+        )
+
+    anyio.run(run)
+    assert starts == pytest.approx([100.0, 100.3, 100.6, 100.9])

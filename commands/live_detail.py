@@ -11,6 +11,7 @@ from nonebot.adapters.onebot.v11 import Bot, Message, MessageEvent, MessageSegme
 from nonebot.log import logger
 from nonebot.params import CommandArg
 
+from ..message_sender import finish as finish_message
 from ..toolkit import Color, PicGenerator, timestamp_format
 from .query import (
     _locate_room_by_anchor,
@@ -239,7 +240,7 @@ async def _(bot: Bot, event: MessageEvent, arg: Message = CommandArg()):  # noqa
         return
 
     if len(image_paths) == 1:
-        await 查直播详细.finish(MessageSegment.image(_sc_image_uri(image_paths[0])))
+        await finish_message(查直播详细, MessageSegment.image(_sc_image_uri(image_paths[0])))
 
     await _send_forward_images(
         bot,
