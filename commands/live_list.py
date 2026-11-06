@@ -34,7 +34,14 @@ PSP开播 = on_command(
     priority=5,
 )
 
-# 大乱斗开播：/大乱斗开播
+VUP开播 = on_command(
+    "VUP开播",
+    aliases={"vup开播", "Vup开播", "vUp开播", "vuP开播", "VUp开播", "VuP开播", "vUP开播"},
+    block=True,
+    priority=5,
+)
+
+# 大乱斗开播：/大乱斗开播（仅 VR + PSP）
 大乱斗开播 = on_command(
     "大乱斗开播",
     block=True,
@@ -298,6 +305,17 @@ async def _(event: MessageEvent):
         query_source_text=build_query_source_text(event),
     )
     await finish_message(PSP开播, seg)
+
+@VUP开播.handle()
+async def _(event: MessageEvent):
+    seg = await _handle_live_list(
+        api_url=cfg.vup_gift_api_base,
+        title=cfg.vup_live_title,
+        user_id=getattr(event, "user_id", 0),
+        query_source_text=build_query_source_text(event),
+    )
+    await finish_message(VUP开播, seg)
+
 
 @大乱斗开播.handle()
 async def _(event: MessageEvent):

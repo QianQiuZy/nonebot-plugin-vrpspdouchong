@@ -110,7 +110,7 @@ async def _locate_room_by_anchor(anchor_kw: str) -> Tuple[Optional[str], Optiona
     通过 /gift 列表搜索主播，返回 (chosen_base, match_item)
     顺序请求（稳定优先）。
     """
-    bases = [cfg.vr_gift_api_base, cfg.psp_gift_api_base]
+    bases = [cfg.vr_gift_api_base, cfg.psp_gift_api_base, cfg.vup_gift_api_base]
 
     for base in bases:
         try:
@@ -892,8 +892,8 @@ async def _fetch_month_list(client: httpx.AsyncClient, base: str, month_code: st
 
 
 async def fetch_all_data_by_month(month_code: str) -> List[Dict[str, Any]]:
-    """并行拉取 VR+PSP 按月数据并合并去重。"""
-    bases = [cfg.vr_gift_api_base, cfg.psp_gift_api_base]
+    """并行拉取 VR+PSP+VUP 按月数据并合并去重。"""
+    bases = [cfg.vr_gift_api_base, cfg.psp_gift_api_base, cfg.vup_gift_api_base]
     async with httpx.AsyncClient(timeout=cfg.vr_http_timeout) as client:
         lists = await asyncio.gather(*[_fetch_month_list(client, b, month_code) for b in bases])
     merged: List[Dict[str, Any]] = []
@@ -1113,7 +1113,7 @@ async def _(bot: Bot, event: GroupMessageEvent | PrivateMessageEvent, arg: Messa
         await 查流水.finish(MessageSegment.text("用法：/查流水 主播名称 [YYYYMM|YYYY-MM]"))
     query_source_text = build_query_source_text(event)
 
-    # 拉取 VR+PSP 按月合并
+    # 拉取 VR+PSP+VUP 按月合并
     data_list = await fetch_all_data_by_month(month_code)
     if not data_list:
         await 查流水.finish("未找到用户")

@@ -1,4 +1,4 @@
-"""Shared request pacing and 429 handling for all VR / PSP API calls."""
+"""Shared request pacing and 429 handling for all VR / PSP / VUP API calls."""
 
 from __future__ import annotations
 

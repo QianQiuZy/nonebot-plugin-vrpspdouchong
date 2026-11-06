@@ -1,14 +1,14 @@
 # nonebot-plugin-vrpspdouchong
 
-基于 NoneBot2 的 VR / PSP 斗虫统计插件，提供月度榜单、开播列表、单主播直播场次、SC 记录和流水概览查询，并将结果渲染为图片发送。
+基于 NoneBot2 的 VR / PSP / VUP 斗虫统计插件，提供月度榜单、开播列表、单主播直播场次、SC 记录和流水概览查询，并将结果渲染为图片发送。
 
-当前实现主要面向 OneBot v11 适配器，数据来源依赖外部 VR / PSP 统计接口。
+当前实现主要面向 OneBot v11 适配器，数据来源依赖外部 VR / PSP / VUP 统计接口。
 
 ## 功能
 
-- `VR斗虫` / `PSP斗虫` / `大乱斗斗虫`
+- `VR斗虫` / `PSP斗虫` / `VUP斗虫` / `大乱斗斗虫`
   - 查询指定日期、月份或指定年份累计的礼物统计榜单
-- `VR开播` / `PSP开播` / `大乱斗开播`
+- `VR开播` / `PSP开播` / `VUP开播` / `大乱斗开播`
   - 查询当前正在直播的房间列表
 - `查直播`
   - 查询指定主播某月的直播场次明细
@@ -71,14 +71,17 @@ pip install httpx pillow fonttools regex
 | --- | --- | --- |
 | `vr_gift_api_base` | `https://vr.qianqiuzy.cn/gift` | VR 礼物统计 API 基址 |
 | `psp_gift_api_base` | `https://psp.qianqiuzy.cn/gift` | PSP 礼物统计 API 基址 |
+| `vup_gift_api_base` | `https://vup.qianqiuzy.cn/gift` | VUP 礼物统计 API 基址 |
 | `vr_douchong_title` | `VR斗虫` | VR 斗虫榜单图片标题 |
 | `psp_douchong_title` | `PSP斗虫` | PSP 斗虫榜单图片标题 |
+| `vup_douchong_title` | `VUP斗虫` | VUP 斗虫榜单图片标题 |
 | `vr_live_title` | `VR开播` | VR 开播列表图片标题 |
 | `psp_live_title` | `PSP开播` | PSP 开播列表图片标题 |
+| `vup_live_title` | `VUP开播` | VUP 开播列表图片标题 |
 
 ## 请求限流与重试
 
-同一 Bot 进程内，所有指令、群聊及 VR / PSP 数据源共用 **15 TPS** 请求限额，请求启动间隔至少约 67 毫秒；日榜逐房间查询和重试请求也计入限额。
+同一 Bot 进程内，所有指令、群聊及 VR / PSP / VUP 数据源共用 **15 TPS** 请求限额，请求启动间隔至少约 67 毫秒；日榜逐房间查询和重试请求也计入限额。
 
 收到 HTTP `429` 时，全局请求暂停 **1 秒**，随后重新排队重试同一请求，最多重试 **3 次**（含首次请求共 4 次）。持续返回 `429` 时交由原有错误处理逻辑处理，其他 HTTP 错误不自动重试。多个 Bot 进程各自限流，不共享额度。
 
@@ -86,9 +89,13 @@ pip install httpx pillow fonttools regex
 
 同一 Bot 进程内，本插件所有指令、群聊、私聊及 Bot 实例共用图片发送限速：普通图片消息的发送请求启动间隔至少 **0.3 秒**，首张图片无需额外等待。文字消息不受限制。
 
-合并转发及其图片预上传步骤不参与此限速。图片发送限速与上述 VR / PSP HTTP 请求限流独立；多个 Bot 进程各自限速，不共享额度。
+合并转发及其图片预上传步骤不参与此限速。图片发送限速与上述 VR / PSP / VUP HTTP 请求限流独立；多个 Bot 进程各自限速，不共享额度。
 
 ## 指令说明
+
+`/VUP斗虫`、`/VUP开播` 支持任意大小写组合，例如 `/vup斗虫`、`/Vup开播`。
+通用查询（查直播、查直播详细、查SC、查粉丝、查流水）覆盖 VR、PSP、VUP；
+名称匹配仍按 VR → PSP → VUP 的优先级查找。`/大乱斗斗虫`、`/大乱斗开播` 仅聚合 VR 和 PSP，不包含 VUP。
 
 ### 斗虫榜单
 
@@ -96,6 +103,7 @@ pip install httpx pillow fonttools regex
 
 - `/VR斗虫 [统计周期]`
 - `/PSP斗虫 [统计周期]`
+- `/VUP斗虫 [统计周期]`
 - `/大乱斗斗虫 [统计周期]`
 
 统计周期支持以下格式：
@@ -162,6 +170,7 @@ pip install httpx pillow fonttools regex
 
 - `/VR开播`
 - `/PSP开播`
+- `/VUP开播`
 - `/大乱斗开播`
 
 返回当前正在直播的房间列表，包含：
@@ -190,7 +199,7 @@ pip install httpx pillow fonttools regex
 
 功能说明：
 
-- 先在 VR / PSP 数据源中按主播名称模糊匹配房间
+- 先在 VR / PSP / VUP 数据源中按主播名称模糊匹配房间
 - 再查询该主播指定月份的直播场次
 - 返回图片明细表
 
@@ -288,7 +297,7 @@ pip install httpx pillow fonttools regex
 ## 返回形式
 
 - 大部分指令返回单张图片
-- `VR斗虫` / `PSP斗虫` / `大乱斗斗虫` 返回一张图时按普通图片发送，返回两张图时通过 OneBot v11 合并转发发送
+- `VR斗虫` / `PSP斗虫` / `VUP斗虫` / `大乱斗斗虫` 返回一张图时按普通图片发送，返回两张图时通过 OneBot v11 合并转发发送
 - `查SC` 在记录较多时会拆分为多张图片，并通过 OneBot v11 的合并转发接口发送
 - `查直播详细` 按直播场次拆分图片，多场次时通过 OneBot v11 的合并转发接口发送
 

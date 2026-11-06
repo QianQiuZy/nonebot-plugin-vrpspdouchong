@@ -11,12 +11,18 @@ class Config(BaseModel):
         default="https://psp.qianqiuzy.cn/gift",
         description="PSP礼物统计 API 基址（不含 /by_month）",
     )
+    vup_gift_api_base: str = Field(
+        default="https://vup.qianqiuzy.cn/gift",
+        description="VUP礼物统计 API 基址（不含 /by_month）",
+    )
 
     # --- Titles ---
     vr_douchong_title: str = Field(default="VR斗虫", description="VR斗虫图片标题")
     psp_douchong_title: str = Field(default="PSP斗虫", description="PSP斗虫图片标题")
+    vup_douchong_title: str = Field(default="VUP斗虫", description="VUP斗虫图片标题")
     vr_live_title: str = Field(default="VR开播", description="VR开播图片标题")
     psp_live_title: str = Field(default="PSP开播", description="PSP开播图片标题")
+    vup_live_title: str = Field(default="VUP开播", description="VUP开播图片标题")
 
     # --- HTTP ---
     vr_http_timeout: float = Field(default=5.0, description="HTTP 请求超时（秒）")

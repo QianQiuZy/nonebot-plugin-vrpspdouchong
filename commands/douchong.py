@@ -49,6 +49,13 @@ PSP斗虫 = on_command(
     priority=5,
 )
 
+VUP斗虫 = on_command(
+    "VUP斗虫",
+    aliases={"vup斗虫", "Vup斗虫", "vUp斗虫", "vuP斗虫", "VUp斗虫", "VuP斗虫", "vUP斗虫"},
+    block=True,
+    priority=5,
+)
+
 大乱斗斗虫 = on_command(
     "大乱斗斗虫",
     block=True,
@@ -286,7 +293,7 @@ async def fetch_period_data(api_base: str, month_codes: List[str]) -> List[Dict[
 
 
 # ==========================
-# 5) 通用 Handler（VR/PSP 复用）
+# 5) 通用 Handler（VR/PSP/VUP 复用）
 # ==========================
 async def send_douchong_images(
     bot: Bot,
@@ -512,6 +519,20 @@ async def _(bot: Bot, event: MessageEvent, arg: Message = CommandArg()):
     if seg is None:
         await PSP斗虫.finish()
     await finish_message(PSP斗虫, seg)
+
+@VUP斗虫.handle()
+async def _(bot: Bot, event: MessageEvent, arg: Message = CommandArg()):
+    seg = await _handle_douchong(
+        bot,
+        event,
+        arg,
+        api_base=cfg.vup_gift_api_base,
+        title=cfg.vup_douchong_title,
+    )
+    if seg is None:
+        await VUP斗虫.finish()
+    await finish_message(VUP斗虫, seg)
+
 
 @大乱斗斗虫.handle()
 async def _(bot: Bot, event: MessageEvent, arg: Message = CommandArg()):
