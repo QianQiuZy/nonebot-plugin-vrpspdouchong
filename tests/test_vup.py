@@ -70,7 +70,7 @@ def test_vup_douchong_supports_existing_periods(monkeypatch, period):
     else:
         assert fetch.call_args.args[0] == VUP_BASE
         if period == "2025":
-            assert fetch.call_args.args[1] == [f"2025{m:02}" for m in range(1, 13)]
+            assert fetch.call_args.args[1] == douchong.QueryPeriod("2025", "2025年 1-12月累计", annual=True)
         daily.assert_not_awaited()
 
 
@@ -119,7 +119,7 @@ def test_monthly_query_includes_vup_and_deduplicates_shared_rooms(monkeypatch):
 def test_brawl_douchong_remains_vr_psp_only(monkeypatch, period):
     calls = []
 
-    async def fetch(base, months):
+    async def fetch(base, period):
         calls.append(base)
         return [{"room_id": len(calls), "anchor_name": "主播"}]
 

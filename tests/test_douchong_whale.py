@@ -159,20 +159,23 @@ def test_all_null_danmaku_fields_are_unavailable() -> None:
     assert not has_danmaku_data([row])
 
 
-def test_annual_period_stays_annual_when_january_has_only_one_month(monkeypatch) -> None:
-    monkeypatch.setattr(douchong, "build_year_month_codes", lambda year: [f"{year}01"])
+def test_annual_period_stays_annual_in_january(monkeypatch) -> None:
+    monkeypatch.setattr(douchong, "current_month_code", lambda: "202601")
 
     period = douchong.normalize_period_arg("2026")
 
-    assert period == (["202601"], "2026年 1-1月累计", False)
+    assert period == douchong.QueryPeriod("2026", "2026年 1-1月累计", annual=True)
+    assert not period.show_monthly_details
+    assert not period.show_live_status
 
 
 def test_live_status_is_only_enabled_for_the_current_month(monkeypatch) -> None:
     monkeypatch.setattr(douchong, "current_month_code", lambda: "202609")
 
-    assert douchong.should_show_live_status(["202609"])
-    assert not douchong.should_show_live_status(["202608"])
-    assert not douchong.should_show_live_status(["202609", "202608"])
+    for raw, expected in [("", True), ("2026-09", True), ("202608", False), ("2026", False)]:
+        period = douchong.normalize_period_arg(raw)
+        assert period is not None
+        assert period.show_live_status is expected
 
 
 def test_historical_primary_headers_and_image_hide_live_status() -> None:

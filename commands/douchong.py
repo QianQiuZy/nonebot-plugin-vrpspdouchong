@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import re
 import time
+from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 import httpx
 from nonebot import get_plugin_config, on_command
@@ -19,13 +20,7 @@ from .douchong_daily import (
     build_daily_image,
     normalize_day_arg,
 )
-from .douchong_table import (
-    _duration_to_seconds,
-    _seconds_to_duration,
-    _to_float,
-    _to_int,
-    render_table_images,
-)
+from .douchong_table import render_table_images
 from .query import _save_sc_image_file, _send_forward_images
 
 cfg = get_plugin_config(Config)
@@ -64,7 +59,7 @@ VUP斗虫 = on_command(
 
 _MONTH_RE_1 = re.compile(r"^(\d{4})(\d{2})$")
 _MONTH_RE_2 = re.compile(r"^(\d{4})-(\d{2})$")
-_YEAR_RE = re.compile(r"^(\d{4})$")
+_YEAR_RE = re.compile(r"^[0-9]{4}$")
 
 
 # ==========================
@@ -100,52 +95,34 @@ def normalize_month_arg(raw: str) -> Optional[str]:
     return None
 
 
-def build_year_month_codes(year: int, now_dt: Optional[datetime] = None) -> Optional[List[str]]:
-    """
-    年流水取数规则：
-    - 目标年 < 当前年：拉取 1~12 月
-    - 目标年 == 当前年：拉取 1~当前月
-    - 目标年 > 当前年：非法
-    """
-    current = now_dt or datetime.now()
-    current_year = current.year
-    current_month = current.month
+@dataclass(frozen=True)
+class QueryPeriod:
+    code: str
+    display: str
+    annual: bool = False
 
-    if year > current_year:
-        return None
+    @property
+    def show_monthly_details(self) -> bool:
+        return not self.annual
 
-    end_month = current_month if year == current_year else 12
-    return [f"{year}{m:02d}" for m in range(1, end_month + 1)]
+    @property
+    def show_live_status(self) -> bool:
+        return not self.annual and self.code == current_month_code()
 
 
-def normalize_period_arg(raw: str) -> Optional[Tuple[List[str], str, bool]]:
-    """
-    规范化统计周期参数：
-    - 为空：当前月
-    - YYYYMM 或 YYYY-MM：单月
-    - YYYY：年累计（当年按 1~当前月，历史年按 1~12 月）
-    返回: (month_codes, display_text, show_monthly_details)
-    """
+def normalize_period_arg(raw: str) -> Optional[QueryPeriod]:
+    """空参数和 YYYYMM / YYYY-MM 查询月份，YYYY 直接查询整年。"""
     text = (raw or "").strip()
-    if not text:
-        month_code = current_month_code()
-        return [month_code], f"{month_code[:4]}-{month_code[4:]}", True
+    current = current_month_code()
+    month = normalize_month_arg(text) if text else current
+    if month:
+        return QueryPeriod(month, f"{month[:4]}-{month[4:]}")
 
-    month_code = normalize_month_arg(text)
-    if month_code:
-        return [month_code], f"{month_code[:4]}-{month_code[4:]}", True
-
-    y = _YEAR_RE.fullmatch(text)
-    if not y:
+    if not _YEAR_RE.fullmatch(text) or not "0001" <= text <= current[:4]:
         return None
 
-    year = int(y.group(1))
-    month_codes = build_year_month_codes(year)
-    if not month_codes:
-        return None
-
-    end_month = int(month_codes[-1][4:])
-    return month_codes, f"{year}年 1-{end_month}月累计", False
+    end_month = int(current[4:]) if text == current[:4] else 12
+    return QueryPeriod(text, f"{int(text)}年 1-{end_month}月累计", annual=True)
 
 
 def calc_live_duration_with_live_time(live_duration: Any, live_time: Any, now_ts: Optional[int] = None) -> str:
@@ -176,11 +153,13 @@ def calc_live_duration_with_live_time(live_duration: Any, live_time: Any, now_ts
         return str(live_duration)
 
 
-def apply_live_duration_calc(data_list: List[Dict[str, Any]], now_ts: Optional[int] = None) -> None:
+def apply_live_duration_calc(
+    data_list: List[Dict[str, Any]], now_ts: Optional[int] = None, *, live_only: bool = False,
+) -> None:
     """批量按 now-live_time+live_duration 更新 live_duration。"""
     current_ts = int(now_ts if now_ts is not None else time.time())
     for d in data_list:
-        if not isinstance(d, dict):
+        if not isinstance(d, dict) or (live_only and d.get("status") not in (1, "1")):
             continue
         d["live_duration"] = calc_live_duration_with_live_time(
             d.get("live_duration", "00:00:00"),
@@ -200,10 +179,11 @@ def build_query_source_text(event: MessageEvent) -> str:
 # ==========================
 # 3) 通用：HTTP 拉取
 # ==========================
-async def fetch_month_data(api_base: str, month_code: str) -> List[Dict[str, Any]]:
-    url = f"{api_base}/by_month?month={month_code}"
+async def fetch_period_data(api_base: str, period: QueryPeriod) -> List[Dict[str, Any]]:
+    """使用服务端的月份或年度汇总，不在插件内按月拼接年度数据。"""
+    params = {"year" if period.annual else "month": period.code}
     async with httpx.AsyncClient(timeout=cfg.vr_http_timeout) as client:
-        resp = await api_get(client, url)
+        resp = await api_get(client, f"{api_base.rstrip('/')}/by_month", params=params)
         data = resp.json()
 
     if not isinstance(data, list):
@@ -211,85 +191,12 @@ async def fetch_month_data(api_base: str, month_code: str) -> List[Dict[str, Any
     return [d for d in data if isinstance(d, dict)]
 
 
-def merge_monthly_data(all_rows: List[Dict[str, Any]], *, include_live_status: bool = False) -> List[Dict[str, Any]]:
-    """按 room_id（缺失时退化到 anchor_name）聚合多月数据。"""
-    numeric_sum_fields = [
-        "effective_days", "guard_1", "guard_2", "guard_3", "fans_count", "payer_count",
-        "blind_box_count", "blind_box_profit", "gift", "super_chat", "guard",
-    ]
-    int_sum_fields = ["effective_days", "guard_1", "guard_2", "guard_3", "fans_count", "payer_count", "blind_box_count"]
-    max_fields = ["attention"]
-
-    merged: Dict[str, Dict[str, Any]] = {}
-    for row in all_rows:
-        if not isinstance(row, dict):
-            continue
-
-        key = str(row.get("room_id") or row.get("anchor_name") or "")
-        if not key:
-            continue
-
-        if key not in merged:
-            base = dict(row)
-            for f in numeric_sum_fields:
-                base[f] = 0
-            for f in max_fields:
-                base[f] = 0
-            base["status"] = 0
-            base["live_duration_seconds"] = 0
-            base["live_duration"] = "00:00:00"
-            base["live_time"] = "0000-00-00 00:00:00"
-            merged[key] = base
-
-        target = merged[key]
-
-        for f in numeric_sum_fields:
-            target[f] = _to_float(target.get(f, 0)) + _to_float(row.get(f, 0))
-
-        for f in int_sum_fields:
-            target[f] = _to_int(round(_to_float(target.get(f, 0))))
-
-        for f in max_fields:
-            target[f] = max(_to_int(target.get(f, 0)), _to_int(row.get(f, 0)))
-
-        target["live_duration_seconds"] = _to_int(target.get("live_duration_seconds", 0)) + _duration_to_seconds(
-            row.get("live_duration", "00:00:00")
-        )
-        target["live_duration"] = _seconds_to_duration(target["live_duration_seconds"])
-
-        if include_live_status and _to_int(row.get("status", 0)) == 1:
-            target["status"] = 1
-            target["live_time"] = str(row.get("live_time") or target.get("live_time") or "0000-00-00 00:00:00")
-
-    for v in merged.values():
-        v.pop("live_duration_seconds", None)
-
-    return list(merged.values())
-
-
-def _is_current_year_period(month_codes: List[str]) -> bool:
-    if not month_codes:
-        return False
-    current_year = datetime.now().year
-    return all(_to_int(code[:4], 0) == current_year for code in month_codes)
-
-
-def should_show_live_status(month_codes: List[str]) -> bool:
-    return len(month_codes) == 1 and month_codes[0] == current_month_code()
-
-
-async def fetch_period_data(api_base: str, month_codes: List[str]) -> List[Dict[str, Any]]:
-    """单月直出；多月聚合。"""
-    if len(month_codes) == 1:
-        return await fetch_month_data(api_base, month_codes[0])
-
-    all_rows: List[Dict[str, Any]] = []
-    for month_code in month_codes:
-        month_rows = await fetch_month_data(api_base, month_code)
-        all_rows.extend(month_rows)
-
-    include_live_status = _is_current_year_period(month_codes)
-    return merge_monthly_data(all_rows, include_live_status=include_live_status)
+def update_period_live_duration(data_list: List[Dict[str, Any]], period: QueryPeriod) -> None:
+    # 历史年度直接使用 API 汇总时长；当年只为正在直播的房间追加未入账时长。
+    if not period.annual:
+        apply_live_duration_calc(data_list)
+    elif period.code == current_month_code()[:4]:
+        apply_live_duration_calc(data_list, live_only=True)
 
 
 # ==========================
@@ -361,24 +268,22 @@ async def _handle_douchong(
         return MessageSegment.text(
             "参数格式不正确，请使用 YYYY、YYYYMM、YYYY-MM 或 YYYYMMDD，例如：2026、202509、2025-09 或 20250913"
         )
-    month_codes, period_display, show_monthly_details = period
+    period_display = period.display
     query_source_text = build_query_source_text(event)
 
     logger.info(
-        f"[{title}] period={','.join(month_codes)} user={getattr(event, 'user_id', None)}"
+        f"[{title}] period={period.code} user={getattr(event, 'user_id', None)}"
     )
 
     try:
-        data_list = await fetch_period_data(api_base, month_codes)
+        data_list = await fetch_period_data(api_base, period)
     except Exception as e:
         return MessageSegment.text(f"请求数据失败：{e}")
 
     if not data_list:
         return MessageSegment.text(f"无数据：{period_display}")
 
-    # 单月保持动态时长；当前年份累计也更新动态时长，直播状态仅当前月显示
-    if len(month_codes) == 1 or _is_current_year_period(month_codes):
-        apply_live_duration_calc(data_list)
+    update_period_live_duration(data_list, period)
 
     try:
         images = render_table_images(
@@ -386,8 +291,8 @@ async def _handle_douchong(
             data_list,
             period_display,
             query_source_text,
-            show_monthly_details=show_monthly_details,
-            show_live_status=should_show_live_status(month_codes),
+            show_monthly_details=period.show_monthly_details,
+            show_live_status=period.show_live_status,
         )
     except (OSError, RuntimeError, TypeError, ValueError) as e:
         logger.exception("render_table_images failed")
@@ -408,7 +313,7 @@ async def _handle_douchong_brawl(
     arg: Message,
 ) -> MessageSegment | None:
     """
-    /大乱斗斗虫 [YYYYMMDD|YYYYMM|YYYY-MM]
+    /大乱斗斗虫 [YYYYMMDD|YYYYMM|YYYY-MM|YYYY]
     拉取 VR + PSP 两份数据，合并后按 total 排序，绘图复用 render_table_images。
     """
     raw = ""
@@ -439,19 +344,19 @@ async def _handle_douchong_brawl(
         return MessageSegment.text(
             "参数格式不正确，请使用 YYYY、YYYYMM、YYYY-MM 或 YYYYMMDD，例如：2026、202601、2026-01 或 20260913"
         )
-    month_codes, period_display, show_monthly_details = period
+    period_display = period.display
     query_source_text = build_query_source_text(event)
 
     title = "VRPSP大乱斗"
-    logger.info(f"[{title}] period={','.join(month_codes)} user={getattr(event, 'user_id', None)}")
+    logger.info(f"[{title}] period={period.code} user={getattr(event, 'user_id', None)}")
 
     try:
-        vr_list = await fetch_period_data(cfg.vr_gift_api_base, month_codes)
+        vr_list = await fetch_period_data(cfg.vr_gift_api_base, period)
     except Exception as e:
         return MessageSegment.text(f"请求 VR 数据失败：{e}")
 
     try:
-        psp_list = await fetch_period_data(cfg.psp_gift_api_base, month_codes)
+        psp_list = await fetch_period_data(cfg.psp_gift_api_base, period)
     except Exception as e:
         return MessageSegment.text(f"请求 PSP 数据失败：{e}")
 
@@ -467,9 +372,7 @@ async def _handle_douchong_brawl(
     if not data_list:
         return MessageSegment.text(f"无数据：{period_display}")
 
-    # 单月保持动态时长；当前年份累计也更新动态时长，直播状态仅当前月显示
-    if len(month_codes) == 1 or _is_current_year_period(month_codes):
-        apply_live_duration_calc(data_list)
+    update_period_live_duration(data_list, period)
 
     try:
         images = render_table_images(
@@ -477,8 +380,8 @@ async def _handle_douchong_brawl(
             data_list,
             period_display,
             query_source_text,
-            show_monthly_details=show_monthly_details,
-            show_live_status=should_show_live_status(month_codes),
+            show_monthly_details=period.show_monthly_details,
+            show_live_status=period.show_live_status,
         )
     except (OSError, RuntimeError, TypeError, ValueError) as e:
         logger.exception("render_table_images failed")
