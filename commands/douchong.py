@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 import time
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 import httpx
@@ -60,6 +60,7 @@ VUP斗虫 = on_command(
 _MONTH_RE_1 = re.compile(r"^(\d{4})(\d{2})$")
 _MONTH_RE_2 = re.compile(r"^(\d{4})-(\d{2})$")
 _YEAR_RE = re.compile(r"^[0-9]{4}$")
+_CHINA_TIMEZONE = timezone(timedelta(hours=8))
 
 
 # ==========================
@@ -67,6 +68,10 @@ _YEAR_RE = re.compile(r"^[0-9]{4}$")
 # ==========================
 def current_month_code() -> str:
     return time.strftime("%Y%m", time.localtime())
+
+
+def _beijing_now() -> datetime:
+    return datetime.now(_CHINA_TIMEZONE)
 
 
 def normalize_month_arg(raw: str) -> Optional[str]:
@@ -113,19 +118,25 @@ class QueryPeriod:
 def normalize_period_arg(raw: str) -> Optional[QueryPeriod]:
     """空参数和 YYYYMM / YYYY-MM 查询月份，YYYY 直接查询整年。"""
     text = (raw or "").strip()
-    current = current_month_code()
-    month = normalize_month_arg(text) if text else current
+    month = normalize_month_arg(text) if text else current_month_code()
     if month:
         return QueryPeriod(month, f"{month[:4]}-{month[4:]}")
 
-    if not _YEAR_RE.fullmatch(text) or not "0001" <= text <= current[:4]:
+    now = _beijing_now()
+    if not _YEAR_RE.fullmatch(text) or not 1 <= int(text) <= now.year:
         return None
 
-    end_month = int(current[4:]) if text == current[:4] else 12
+    end_month = now.month if int(text) == now.year else 12
     return QueryPeriod(text, f"{int(text)}年 1-{end_month}月累计", annual=True)
 
 
-def calc_live_duration_with_live_time(live_duration: Any, live_time: Any, now_ts: Optional[int] = None) -> str:
+def calc_live_duration_with_live_time(
+    live_duration: Any,
+    live_time: Any,
+    now_ts: Optional[int] = None,
+    *,
+    annual_start: Optional[datetime] = None,
+) -> str:
     """
     直播时长计算：now - live_time + live_duration
     - live_duration: "HH:MM:SS"
@@ -141,10 +152,13 @@ def calc_live_duration_with_live_time(live_duration: Any, live_time: Any, now_ts
         base_seconds = h * 3600 + m * 60 + s
 
         live_dt = datetime.strptime(str(live_time), "%Y-%m-%d %H:%M:%S")
-        live_ts = int(live_dt.timestamp())
         now_seconds = int(now_ts if now_ts is not None else time.time())
-
-        total_seconds = max(0, now_seconds - live_ts + base_seconds)
+        if annual_start is None:
+            total_seconds = max(0, now_seconds - int(live_dt.timestamp()) + base_seconds)
+        else:
+            live_dt = live_dt.replace(tzinfo=_CHINA_TIMEZONE)
+            active_start = max(live_dt, annual_start)
+            total_seconds = base_seconds + max(0, now_seconds - int(active_start.timestamp()))
         hh = total_seconds // 3600
         mm = (total_seconds % 3600) // 60
         ss = total_seconds % 60
@@ -154,17 +168,18 @@ def calc_live_duration_with_live_time(live_duration: Any, live_time: Any, now_ts
 
 
 def apply_live_duration_calc(
-    data_list: List[Dict[str, Any]], now_ts: Optional[int] = None, *, live_only: bool = False,
+    data_list: List[Dict[str, Any]], now_ts: Optional[int] = None, *, annual_start: Optional[datetime] = None,
 ) -> None:
     """批量按 now-live_time+live_duration 更新 live_duration。"""
     current_ts = int(now_ts if now_ts is not None else time.time())
     for d in data_list:
-        if not isinstance(d, dict) or (live_only and d.get("status") not in (1, "1")):
+        if not isinstance(d, dict) or (annual_start is not None and d.get("status") not in (1, "1")):
             continue
         d["live_duration"] = calc_live_duration_with_live_time(
             d.get("live_duration", "00:00:00"),
             d.get("live_time", ""),
             current_ts,
+            annual_start=annual_start,
         )
 
 
@@ -192,11 +207,14 @@ async def fetch_period_data(api_base: str, period: QueryPeriod) -> List[Dict[str
 
 
 def update_period_live_duration(data_list: List[Dict[str, Any]], period: QueryPeriod) -> None:
-    # 历史年度直接使用 API 汇总时长；当年只为正在直播的房间追加未入账时长。
     if not period.annual:
         apply_live_duration_calc(data_list)
-    elif period.code == current_month_code()[:4]:
-        apply_live_duration_calc(data_list, live_only=True)
+        return
+    now = _beijing_now()
+    if int(period.code) == now.year:
+        # 年度接口未提供在播计时游标，只能估算当年尚在进行的部分。
+        annual_start = datetime(now.year, 1, 1, tzinfo=_CHINA_TIMEZONE)
+        apply_live_duration_calc(data_list, int(now.timestamp()), annual_start=annual_start)
 
 
 # ==========================

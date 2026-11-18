@@ -160,7 +160,10 @@ def test_all_null_danmaku_fields_are_unavailable() -> None:
 
 
 def test_annual_period_stays_annual_in_january(monkeypatch) -> None:
-    monkeypatch.setattr(douchong, "current_month_code", lambda: "202601")
+    monkeypatch.setattr(
+        douchong, "_beijing_now",
+        lambda: douchong.datetime(2026, 1, 2, tzinfo=douchong._CHINA_TIMEZONE),
+    )
 
     period = douchong.normalize_period_arg("2026")
 

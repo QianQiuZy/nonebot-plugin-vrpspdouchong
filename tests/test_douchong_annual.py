@@ -1,3 +1,4 @@
+from datetime import datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
@@ -11,6 +12,12 @@ from nonebot_plugin_vrpspdouchong.commands import douchong
 
 
 EVENT = SimpleNamespace(user_id=1, group_id=2)
+
+
+@pytest.fixture(autouse=True)
+def fixed_beijing_now(monkeypatch):
+    now = datetime.fromisoformat("2026-01-02T01:00:00+08:00")
+    monkeypatch.setattr(douchong, "_beijing_now", lambda: now)
 
 
 @pytest.mark.parametrize("year", ["0000", "2027", "２０２６"])
@@ -102,18 +109,38 @@ def test_annual_failure_does_not_fall_back_to_months(monkeypatch):
     assert calls == [httpx.URL("https://example.test/gift/by_month?year=2026")]
 
 
-def test_dynamic_annual_duration_only_applies_to_live_rooms_this_year(monkeypatch):
-    monkeypatch.setattr(douchong, "current_month_code", lambda: "202601")
-    calc = Mock(return_value="101:00:00")
-    monkeypatch.setattr(douchong, "calc_live_duration_with_live_time", calc)
+def test_dynamic_annual_duration_only_applies_to_live_rooms_this_year():
     rows = [
         {"status": 0, "live_duration": "100:00:00", "live_time": "2026-01-01 00:00:00"},
-        {"status": 1, "live_duration": "100:00:00", "live_time": "2026-01-01 00:00:00"},
+        {"status": 1, "live_duration": "100:00:00", "live_time": "2026-01-02 00:00:00"},
     ]
 
     douchong.update_period_live_duration(rows, douchong.normalize_period_arg("2025"))
-    calc.assert_not_called()
+    assert [row["live_duration"] for row in rows] == ["100:00:00", "100:00:00"]
     douchong.update_period_live_duration(rows, douchong.normalize_period_arg("2026"))
 
-    calc.assert_called_once()
     assert [row["live_duration"] for row in rows] == ["100:00:00", "101:00:00"]
+
+
+def test_new_year_uses_beijing_boundary_not_bot_host(monkeypatch):
+    # At this same instant the host's local month can still be December 2026.
+    now = datetime.fromisoformat("2027-01-01T00:10:00+08:00")
+    monkeypatch.setattr(douchong, "_beijing_now", lambda: now)
+    monkeypatch.setattr(douchong, "current_month_code", lambda: "202612")
+    period = douchong.normalize_period_arg("2027")
+    assert period == douchong.QueryPeriod("2027", "2027年 1-1月累计", annual=True)
+    assert douchong.normalize_period_arg("2026").display == "2026年 1-12月累计"
+    assert douchong.normalize_period_arg("").code == "202612"
+    rows = [
+        {"status": "1", "live_duration": "02:00:00", "live_time": "2026-12-31 23:30:00"},
+        {"status": 1, "live_duration": "02:00:00", "live_time": "2027-01-01 00:02:00"},
+        {"status": 1, "live_duration": "02:00:00", "live_time": "2027-01-01 00:11:00"},
+        {"status": 1, "live_duration": "02:00:00", "live_time": "0000-00-00 00:00:00"},
+        {"status": 0, "live_duration": "02:00:00", "live_time": "2026-12-31 23:30:00"},
+    ]
+
+    douchong.update_period_live_duration(rows, period)
+
+    assert [row["live_duration"] for row in rows] == [
+        "02:10:00", "02:08:00", "02:00:00", "02:00:00", "02:00:00",
+    ]
