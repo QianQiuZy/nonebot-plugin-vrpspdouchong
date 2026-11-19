@@ -63,18 +63,21 @@ def test_concurrent_clients_and_hosts_share_15_tps_limit():
     assert all(sum(start <= other < start + 1 for other in starts) <= 15 for start in starts)
 
 
-def test_429_waits_one_second_and_preserves_request_parameters(virtual_clock):
+def test_429_preserves_request_parameters_and_user_agent(virtual_clock):
     now, delays = virtual_clock
     requests = []
     starts = []
 
     def handler(request):
+        assert request.headers["user-agent"] == "qianqiuzy-qqbot-vrpspdouchong/1.0"
         requests.append(str(request.url))
         starts.append(now[0])
         return httpx.Response(429 if len(requests) < 3 else 200, json={"attention": []})
 
     async def run():
-        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        async with httpx.AsyncClient(
+            transport=httpx.MockTransport(handler), headers={"User-Agent": "client-default"}
+        ) as client:
             response = await api_client.get(
                 client, "https://vr.test/gift/attention", params={"room_id": "123"}
             )

@@ -7,6 +7,7 @@ from time import monotonic
 
 import httpx
 
+_USER_AGENT = "qianqiuzy-qqbot-vrpspdouchong/1.0"
 _REQUEST_INTERVAL = 1.0 / 15
 _RETRY_DELAY = 1.0
 _MAX_429_RETRIES = 3
@@ -45,7 +46,7 @@ async def get(
     """Pace every attempt globally and retry a 429 up to three times."""
     for attempt in range(_MAX_429_RETRIES + 1):
         await _limiter.wait()
-        response = await client.get(url, params=params)
+        response = await client.get(url, params=params, headers={"User-Agent": _USER_AGENT})
         if response.status_code != 429:
             response.raise_for_status()
             return response
