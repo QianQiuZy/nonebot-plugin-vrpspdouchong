@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 import sys
 from pathlib import Path
+from unittest.mock import AsyncMock, Mock
 
 import anyio
 import nonebot
@@ -26,6 +27,7 @@ _PACKAGE_SPEC.loader.exec_module(_PACKAGE)
 
 douchong = importlib.import_module(f"{_PACKAGE_NAME}.commands.douchong")
 query = importlib.import_module(f"{_PACKAGE_NAME}.commands.query")
+live_detail = importlib.import_module(f"{_PACKAGE_NAME}.commands.live_detail")
 sender = importlib.import_module(f"{_PACKAGE_NAME}.message_sender")
 live_list = importlib.import_module(f"{_PACKAGE_NAME}.commands.live_list")
 
@@ -57,6 +59,36 @@ class _Bot:
 
     async def send(self, event: _Event, message: MessageSegment) -> None:
         self.messages.append(("send", {"event": event, "message": message}))
+
+
+@pytest.mark.parametrize("detailed", [False, True])
+def test_live_query_commands_request_15m_stats_only_for_details(tmp_path, monkeypatch, detailed):
+    base = "https://example.test/gift"
+    module = live_detail if detailed else query
+    matcher = live_detail.查直播详细 if detailed else query.查直播
+    monkeypatch.setattr(
+        module, "_locate_room_by_anchor",
+        AsyncMock(return_value=(base, {"room_id": 123, "anchor_name": "主播A"})),
+    )
+    session = {"title": "测试场次"}
+    expected_url = f"{base}/live_sessions?room_id=123&month=202609"
+    if detailed:
+        session["stats_15m"] = [{"bucket_index": 0, "danmaku_count": 42}]
+        expected_url += "&stats_15m=1"
+        render = Mock(return_value=[tmp_path / "detail.png"])
+        monkeypatch.setattr(live_detail, "render_live_detail_images", render)
+    else:
+        render = Mock(return_value="image")
+        monkeypatch.setattr(query, "render_live_sessions_image", render)
+    fetch = AsyncMock(return_value={"sessions": [session]})
+    monkeypatch.setattr(query, "_fetch_json", fetch)
+    monkeypatch.setattr(module, "finish_message", AsyncMock(side_effect=FinishedException))
+
+    with pytest.raises(FinishedException):
+        anyio.run(matcher.handlers[0].call, _Bot(), _Event(), Message("主播A 2026-09"))
+
+    fetch.assert_awaited_once_with(expected_url)
+    assert render.call_args.kwargs["sessions"] == [session]
 
 
 @pytest.mark.parametrize("private", [False, True])

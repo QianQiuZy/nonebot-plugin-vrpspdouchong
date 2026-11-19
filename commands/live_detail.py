@@ -218,7 +218,9 @@ async def _(bot: Bot, event: MessageEvent, arg: Message = CommandArg()):  # noqa
         return
 
     try:
-        sessions = await query_live_sessions(base=base, room_id=room_id, month_code=month_code)
+        sessions = await query_live_sessions(
+            base=base, room_id=room_id, month_code=month_code, include_stats_15m=True
+        )
     except (httpx.HTTPError, ValueError) as error:
         await 查直播详细.finish(MessageSegment.text(f"未能获取直播场次：{error}"))
         return

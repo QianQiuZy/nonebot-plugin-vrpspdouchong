@@ -155,8 +155,12 @@ def build_query_source_text(event: MessageEvent) -> str:
 
 
 # ========================= ① 查直播：查询函数 =========================
-async def query_live_sessions(*, base: str, room_id: str, month_code: str) -> List[Dict[str, Any]]:
+async def query_live_sessions(
+    *, base: str, room_id: str, month_code: str, include_stats_15m: bool = False
+) -> List[Dict[str, Any]]:
     url = f"{base}/live_sessions?room_id={room_id}&month={month_code}"
+    if include_stats_15m:
+        url += "&stats_15m=1"
     payload = await _fetch_json(url)
 
     if not isinstance(payload, dict) or not isinstance(payload.get("sessions"), list):
