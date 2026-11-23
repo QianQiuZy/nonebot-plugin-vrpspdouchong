@@ -14,11 +14,14 @@ _PRIMARY_WIDTHS: Final = (300, 220, 140, 150, 200, 180, 100, 100, 130, 180, 180,
 _GUARD_COLUMNS: Final = (("guard_1", "舰长", 90), ("guard_2", "提督", 90), ("guard_3", "总督", 90))
 _SECONDARY_FIXED_HEADERS: Final = ("粉丝团", "月付费数")
 _SECONDARY_FIXED_WIDTHS: Final = (120, 140)
-_WHALE_HEADERS: Final = ("top1", "top5", "top10", "top1%")
-_WHALE_WIDTHS: Final = (110, 110, 110, 110)
+_TOP_HEADERS: Final = ("top1", "top5", "top10", "top1%")
+_TOP_FIELDS: Final = ("top1", "top5", "top10", "top1_percent")
+_TOP_WIDTHS: Final = (110, 110, 110, 110)
+_DANMAKU_COUNT_HEADERS: Final = ("弹幕总数", "表情包数")
+_DANMAKU_COUNT_WIDTHS: Final = (140, 140)
 _DANMAKU_ROLE_HEADERS: Final = ("普通弹幕", "舰长弹幕", "提督弹幕", "总督弹幕")
 _DANMAKU_ROLE_FIELDS: Final = ("normal", "captain", "admiral", "governor")
-_DANMAKU_FIELDS: Final = ("total", *_DANMAKU_ROLE_FIELDS)
+_DANMAKU_FIELDS: Final = ("total", "emoticon", *_DANMAKU_ROLE_FIELDS)
 _DANMAKU_ROLE_WIDTHS: Final = (140, 140, 140, 140)
 
 
@@ -114,12 +117,20 @@ def _danmaku(row: dict[str, Any]) -> dict[str, Any]:
     return _mapping(row.get("danmaku"))
 
 
+def _danmaku_dependency(row: dict[str, Any]) -> dict[str, Any]:
+    return _mapping(row.get("danmaku_dependency"))
+
+
 def has_whale_dependency_data(data_list: list[dict[str, Any]]) -> bool:
     return any(_whale_dependency(row).get("status") in {"live", "archived", "partial"} for row in data_list)
 
 
 def has_danmaku_data(data_list: list[dict[str, Any]]) -> bool:
-    return any(any(_danmaku(row).get(field) is not None for field in _DANMAKU_FIELDS) for row in data_list)
+    return any(
+        any(_danmaku(row).get(field) is not None for field in _DANMAKU_FIELDS)
+        or any(_danmaku_dependency(row).get(field) is not None for field in _TOP_FIELDS)
+        for row in data_list
+    )
 
 
 def has_danmaku_role_data(data_list: list[dict[str, Any]]) -> bool:
@@ -137,7 +148,7 @@ def _visible_guard_fields(data_list: list[dict[str, Any]]) -> tuple[str, ...]:
     )
 
 
-def format_whale_ratio(value: Any) -> str:
+def format_dependency_ratio(value: Any) -> str:
     return "-" if value is None else f"{_to_float(value) * 100:.1f}%"
 
 
@@ -146,8 +157,8 @@ def format_danmaku_ratio(value: Any, total: Any) -> str:
         return "-"
     total_count = _to_int(total)
     if total_count <= 0:
-        return "0.0%"
-    return f"{_to_int(value) / total_count * 100:.1f}%"
+        return "-"
+    return format_dependency_ratio(_to_int(value) / total_count)
 
 
 def build_secondary_headers(
@@ -162,11 +173,12 @@ def build_secondary_headers(
     if not show_monthly_details:
         return tuple(headers)
     if has_whale_dependency_data(data_list):
-        headers.extend(_WHALE_HEADERS)
+        headers.extend(_TOP_HEADERS)
     if has_danmaku_data(data_list):
-        headers.append("弹幕总数")
+        headers.extend(_DANMAKU_COUNT_HEADERS)
         if has_danmaku_role_data(data_list):
             headers.extend(_DANMAKU_ROLE_HEADERS)
+        headers.extend(_TOP_HEADERS)
     return tuple(headers)
 
 
@@ -239,6 +251,22 @@ def _primary_rows(
     return rows
 
 
+def _danmaku_cells(row: dict[str, Any], *, show_roles: bool) -> list[str]:
+    danmaku = _danmaku(row)
+    total = danmaku.get("total")
+    role_fields = _DANMAKU_ROLE_FIELDS if show_roles else ()
+    if _to_int(total, default=-1) == 0:
+        return ["-"] * (len(_DANMAKU_COUNT_HEADERS) + len(role_fields) + len(_TOP_FIELDS))
+
+    dependency = _danmaku_dependency(row)
+    return [
+        format_count(total),
+        format_count(danmaku.get("emoticon")),
+        *(format_danmaku_ratio(danmaku.get(field), total) for field in role_fields),
+        *(format_dependency_ratio(dependency.get(field)) for field in _TOP_FIELDS),
+    ]
+
+
 def _secondary_rows(
     data_list: list[dict[str, Any]],
     layout: _SecondaryLayout,
@@ -250,12 +278,9 @@ def _secondary_rows(
         cells.extend((format_count(row.get("fans_count")), str(_to_int(row.get("payer_count")))))
         if layout.show_whales:
             whale = _whale_dependency(row)
-            cells.extend(format_whale_ratio(whale.get(field)) for field in ("top1", "top5", "top10", "top1_percent"))
+            cells.extend(format_dependency_ratio(whale.get(field)) for field in _TOP_FIELDS)
         if layout.show_danmaku:
-            danmaku = _danmaku(row)
-            cells.append(format_count(danmaku.get("total")))
-            if layout.show_danmaku_roles:
-                cells.extend(format_danmaku_ratio(danmaku.get(field), danmaku.get("total")) for field in _DANMAKU_ROLE_FIELDS)
+            cells.extend(_danmaku_cells(row, show_roles=layout.show_danmaku_roles))
         rows.append([(cell, Color.BLACK) for cell in cells])
     return rows
 
@@ -295,11 +320,12 @@ def render_table_images(
     secondary_widths.extend(width for field, _header, width in _GUARD_COLUMNS if field in guard_fields)
     secondary_widths.extend(_SECONDARY_FIXED_WIDTHS)
     if show_whales:
-        secondary_widths.extend(_WHALE_WIDTHS)
+        secondary_widths.extend(_TOP_WIDTHS)
     if show_danmaku:
-        secondary_widths.append(140)
+        secondary_widths.extend(_DANMAKU_COUNT_WIDTHS)
         if show_danmaku_roles:
             secondary_widths.extend(_DANMAKU_ROLE_WIDTHS)
+        secondary_widths.extend(_TOP_WIDTHS)
     return [
         primary_image,
         render_table_image(TableRender(

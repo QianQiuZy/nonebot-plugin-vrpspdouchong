@@ -30,7 +30,7 @@ build_primary_total_row = getattr(_douchong_table, "build_primary_total_row")
 build_primary_headers = getattr(_douchong_table, "build_primary_headers")
 build_secondary_headers = getattr(_douchong_table, "build_secondary_headers")
 format_danmaku_ratio = getattr(_douchong_table, "format_danmaku_ratio")
-format_whale_ratio = getattr(_douchong_table, "format_whale_ratio")
+format_dependency_ratio = _douchong_table.format_dependency_ratio
 has_danmaku_role_data = getattr(_douchong_table, "has_danmaku_role_data")
 has_danmaku_data = getattr(_douchong_table, "has_danmaku_data")
 has_whale_dependency_data = getattr(_douchong_table, "has_whale_dependency_data")
@@ -40,6 +40,8 @@ render_table_images = getattr(_douchong_table, "render_table_images")
 def _row(
     whale_dependency: object,
     danmaku: object | None = None,
+    *,
+    danmaku_dependency: object | None = None,
 ) -> dict[str, object]:
     return {
         "anchor_name": "主播A",
@@ -52,12 +54,13 @@ def _row(
         "guard_3": 3,
         "whale_dependency": whale_dependency,
         "danmaku": danmaku,
+        "danmaku_dependency": danmaku_dependency,
     }
 
 
-def test_whale_ratio_is_percentage_with_one_decimal_place() -> None:
-    assert format_whale_ratio(0.0461009658865671) == "4.6%"
-    assert format_whale_ratio(None) == "-"
+def test_dependency_ratio_is_percentage_with_one_decimal_place() -> None:
+    assert format_dependency_ratio(0.0461009658865671) == "4.6%"
+    assert format_dependency_ratio(None) == "-"
 
 
 def test_unavailable_whale_dependency_hides_columns() -> None:
@@ -68,7 +71,8 @@ def test_unavailable_whale_dependency_hides_columns() -> None:
 def test_danmaku_ratio_uses_total_and_one_decimal_place() -> None:
     assert format_danmaku_ratio(231, 1000) == "23.1%"
     assert format_danmaku_ratio(None, 1000) == "-"
-    assert format_danmaku_ratio(0, 0) == "0.0%"
+    assert format_danmaku_ratio(0, 1000) == "0.0%"
+    assert format_danmaku_ratio(0, 0) == "-"
 
 
 def test_all_null_role_counts_hide_only_the_four_role_columns() -> None:
@@ -93,10 +97,15 @@ def test_all_null_role_counts_hide_only_the_four_role_columns() -> None:
         "粉丝团",
         "月付费数",
         "弹幕总数",
+        "表情包数",
+        "top1",
+        "top5",
+        "top10",
+        "top1%",
     )
 
 
-def test_monthly_secondary_headers_include_whales_and_role_ratios() -> None:
+def test_monthly_secondary_headers_include_both_top_ratio_groups() -> None:
     row = _row(
         {"status": "live"},
         {"total": 100, "normal": 70, "captain": 20, "admiral": 8, "governor": 2},
@@ -114,10 +123,15 @@ def test_monthly_secondary_headers_include_whales_and_role_ratios() -> None:
         "top10",
         "top1%",
         "弹幕总数",
+        "表情包数",
         "普通弹幕",
         "舰长弹幕",
         "提督弹幕",
         "总督弹幕",
+        "top1",
+        "top5",
+        "top10",
+        "top1%",
     )
 
 
@@ -144,10 +158,15 @@ def test_null_guard_counts_hide_their_columns_independently() -> None:
         "粉丝团",
         "月付费数",
         "弹幕总数",
+        "表情包数",
+        "top1",
+        "top5",
+        "top10",
+        "top1%",
     )
     assert len(images) == 2
     secondary = Image.open(io.BytesIO(base64.b64decode(images[1])))
-    assert secondary.width == 830
+    assert secondary.width == 1410
 
 
 def test_all_null_danmaku_fields_are_unavailable() -> None:
@@ -157,6 +176,46 @@ def test_all_null_danmaku_fields_are_unavailable() -> None:
     )
 
     assert not has_danmaku_data([row])
+
+
+def test_monthly_danmaku_cells_use_their_own_top_ratios_and_hide_zero_totals(monkeypatch) -> None:
+    whale = {"status": "live", "top1": 0.1, "top5": 0.2, "top10": 0.3, "top1_percent": 0.04}
+    dependency = {"status": "live", "top1": 0.12, "top5": 0.33, "top10": 0.66, "top1_percent": 0.25}
+    rows = [
+        _row(
+            whale,
+            {"total": 100, "emoticon": 12, "normal": 70, "captain": 20, "admiral": 10, "governor": 0},
+            danmaku_dependency=dependency,
+        ),
+        _row(
+            whale,
+            {"total": 0, "emoticon": 0, "normal": 0, "captain": 0, "admiral": 0, "governor": 0},
+            danmaku_dependency=dependency,
+        ),
+        _row(whale, {"total": 80, "emoticon": 0}),
+        _row(whale, {"total": 50}),
+    ]
+    rendered = []
+
+    def capture(table):
+        rendered.append(table)
+        return "image"
+
+    monkeypatch.setattr(_douchong_table, "render_table_image", capture)
+    assert render_table_images("VR斗虫", rows, "2026-09", "测试", show_monthly_details=True) == ["image", "image"]
+
+    secondary = rendered[1]
+    assert len(secondary.headers) == len(secondary.widths)
+    assert all(len(row) == len(secondary.headers) for row in secondary.rows)
+    first_whale_column = secondary.headers.index("top1")
+    suffixes = [[text for text, _ in row[first_whale_column:]] for row in secondary.rows]
+    whale_values = ["10.0%", "20.0%", "30.0%", "4.0%"]
+    assert suffixes == [
+        [*whale_values, "100", "12", "70.0%", "20.0%", "10.0%", "0.0%", "12.0%", "33.0%", "66.0%", "25.0%"],
+        [*whale_values, *(["-"] * 10)],
+        [*whale_values, "80", "0", *(["-"] * 8)],
+        [*whale_values, "50", *(["-"] * 9)],
+    ]
 
 
 def test_annual_period_stays_annual_in_january(monkeypatch) -> None:
@@ -219,7 +278,8 @@ def test_monthly_render_splits_the_requested_columns_into_two_images() -> None:
             "top10": 0.3,
             "top1_percent": 0.04,
         },
-        {"total": 100, "normal": 70, "captain": 20, "admiral": 8, "governor": 2},
+        {"total": 100, "emoticon": 20, "normal": 70, "captain": 20, "admiral": 8, "governor": 2},
+        danmaku_dependency={"status": "live", "top1": 0.2, "top5": 0.5, "top10": 0.8, "top1_percent": 0.35},
     )
     images = render_table_images(
         "VR斗虫",
@@ -246,7 +306,7 @@ def test_monthly_render_splits_the_requested_columns_into_two_images() -> None:
     )
     assert len(decoded) == 2
     assert decoded[0].width == 2100
-    assert decoded[1].width == 2010
+    assert decoded[1].width == 2590
     for image in decoded:
         bottom_strip = image.crop((0, image.height - 10, image.width, image.height))
         assert bottom_strip.getextrema() == ((255, 255), (255, 255), (255, 255), (255, 255))
