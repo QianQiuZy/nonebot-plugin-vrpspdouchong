@@ -4,6 +4,7 @@ import asyncio
 import importlib.util
 from pathlib import Path
 from time import monotonic
+from unittest.mock import Mock
 
 import httpx
 import pytest
@@ -33,6 +34,14 @@ def virtual_clock(monkeypatch):
     monkeypatch.setattr(api_client, "monotonic", lambda: now[0])
     monkeypatch.setattr(api_client, "sleep", sleep)
     return now, delays
+
+
+def test_api_clients_require_http2(monkeypatch):
+    constructor = Mock()
+    monkeypatch.setattr(api_client.httpx, "AsyncClient", constructor)
+
+    assert api_client.create_client(timeout=3.0) is constructor.return_value
+    constructor.assert_called_once_with(timeout=3.0, http2=True, http1=False)
 
 
 def test_concurrent_clients_and_hosts_share_15_tps_limit():

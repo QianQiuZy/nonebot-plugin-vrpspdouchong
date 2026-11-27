@@ -10,6 +10,7 @@ from typing import Any, Final
 import anyio
 import httpx
 
+from ..api_client import create_client
 from ..api_client import get as api_get
 from ..toolkit import Color, PicGenerator, timestamp_format
 
@@ -115,8 +116,8 @@ async def fetch_daily_data(
     api_base: str,
     day_code: str,
 ) -> list[DailyGiftRow]:
-    """Traverse /gift and collect matching /attention records for one day."""
-    response = await api_get(client, api_base)
+    """Traverse /gift?light=1 and collect matching /attention records for one day."""
+    response = await api_get(client, api_base, params={"light": 1})
     rooms = _room_list(response.json())
     rows: list[DailyGiftRow] = []
     limiter = anyio.CapacityLimiter(10)
@@ -207,7 +208,7 @@ async def build_daily_image(
     timeout: float,
 ) -> str | None:
     """Fetch and render one platform's daily ranking."""
-    async with httpx.AsyncClient(timeout=timeout) as client:
+    async with create_client(timeout=timeout) as client:
         rows = await fetch_daily_data(client, api_base, day_code)
     if not rows:
         return None
@@ -229,7 +230,7 @@ async def build_brawl_daily_image(
     timeout: float,
 ) -> str | None:
     """Fetch both platforms and render one combined daily ranking."""
-    async with httpx.AsyncClient(timeout=timeout) as client:
+    async with create_client(timeout=timeout) as client:
         vr_rows = await fetch_daily_data(client, vr_api_base, day_code)
         psp_rows = await fetch_daily_data(client, psp_api_base, day_code)
     rows = vr_rows + psp_rows

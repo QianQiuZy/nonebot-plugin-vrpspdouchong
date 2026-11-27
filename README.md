@@ -25,7 +25,7 @@
 
 - `nonebot2`
 - `nonebot-adapter-onebot`
-- `httpx`
+- `httpx[http2]`
 - `Pillow`
 - `fonttools`
 - 可选：`regex`
@@ -43,7 +43,7 @@
 示例：
 
 ```bash
-pip install httpx pillow fonttools regex
+pip install "httpx[http2]" pillow fonttools regex
 ```
 
 然后在 `pyproject.toml`、`bot.py` 或你的插件加载配置中加载该插件。
@@ -81,7 +81,11 @@ pip install httpx pillow fonttools regex
 
 ## 请求限流与重试
 
+插件访问统计 API 时统一使用 HTTP/2，自定义 API 地址也需支持 HTTP/2。
+
 同一 Bot 进程内，所有指令、群聊及 VR / PSP / VUP 数据源共用 **15 TPS** 请求限额，请求启动间隔至少约 67 毫秒；日榜逐房间查询和重试请求也计入限额。
+
+开播列表、查询指令的房间定位、日榜的房间列表和当月流水使用 `/gift?light=1`。支持该参数的数据源会省略弹幕统计与付费集中度字段。
 
 收到 HTTP `429` 时，全局请求暂停 **1 秒**，随后重新排队重试同一请求，最多重试 **3 次**（含首次请求共 4 次）。持续返回 `429` 时交由原有错误处理逻辑处理，其他 HTTP 错误不自动重试。多个 Bot 进程各自限流，不共享额度。
 
@@ -162,7 +166,7 @@ pip install httpx pillow fonttools regex
 
 年度查询不生成第二张图片；年度和历史月份查询不显示“直播状态”列；月度数据中所有主播的四类弹幕均为 `null` 时，不显示四个分类占比列。
 
-按日查询使用 `/gift` 获取全部房间号，再逐个请求 `/gift/attention?room_id=房间号` 并筛选目标日期。日榜图片表格仅保留：
+按日查询使用 `/gift?light=1` 获取全部房间号，再逐个请求 `/gift/attention?room_id=房间号` 并筛选目标日期。日榜图片表格仅保留：
 
 - 主播名称
 - 舰长
@@ -296,7 +300,7 @@ pip install httpx pillow fonttools regex
 
 功能说明：
 
-- 同时拉取 VR 与 PSP 指定月份数据
+- 同时拉取 VR、PSP 和 VUP 的指定月份数据。当月请求 `/gift?light=1`，其他月份请求 `/gift/by_month?month=YYYYMM`
 - 按主播名称模糊匹配
 - 返回该主播当月的流水概览卡片
 

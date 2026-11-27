@@ -79,11 +79,12 @@ def test_anchor_search_reaches_vup_when_earlier_sources_do_not_match(monkeypatch
     calls = []
     row = {"room_id": 263605, "anchor_name": "小缘"}
 
-    async def fetch(url):
+    async def fetch(url, *, params):
+        assert params == {"light": 1}
         calls.append(url)
         if vr_fails and url == query.cfg.vr_gift_api_base:
             raise RuntimeError("unavailable")
-        return [row] if url == VUP_BASE else []
+        return {"data": [row]} if url == VUP_BASE else []
 
     monkeypatch.setattr(query, "_fetch_json", fetch)
     assert anyio.run(query._locate_room_by_anchor, "小缘") == (VUP_BASE, row)
@@ -94,23 +95,29 @@ def test_anchor_search_preserves_vr_priority(monkeypatch):
     fetch = AsyncMock(return_value=[{"room_id": 1, "anchor_name": "重叠主播"}])
     monkeypatch.setattr(query, "_fetch_json", fetch)
     assert anyio.run(query._locate_room_by_anchor, "重叠")[0] == query.cfg.vr_gift_api_base
-    fetch.assert_awaited_once_with(query.cfg.vr_gift_api_base)
+    fetch.assert_awaited_once_with(query.cfg.vr_gift_api_base, params={"light": 1})
 
 
-def test_monthly_query_includes_vup_and_deduplicates_shared_rooms(monkeypatch):
+@pytest.mark.parametrize("month_code", ["202610", "202611"])
+def test_monthly_query_includes_vup_and_deduplicates_shared_rooms(monkeypatch, month_code):
     calls = []
-    shared = {"room_id": 1, "anchor_name": "重复主播"}
-    vup = {"room_id": 263605, "anchor_name": "小缘"}
+    shared = {"room_id": 1, "anchor_name": "重复主播", "month": month_code}
+    vup = {
+        "room_id": 263605, "anchor_name": "小缘", "month": month_code,
+        "danmaku": {"total": 42},
+    }
+    monkeypatch.setattr(query, "_gift_current_month", lambda: "202611")
 
     async def get(client, url, *, params):
-        calls.append(url)
-        assert params == {"month": "202611"}
+        request = client.build_request("GET", url, params=params)
+        calls.append(str(request.url))
         return httpx.Response(200, json=[shared, vup] if url.startswith(VUP_BASE) else [shared])
 
     monkeypatch.setattr(query, "api_get", get)
-    assert anyio.run(query.fetch_all_data_by_month, "202611") == [shared, vup]
+    assert anyio.run(query.fetch_all_data_by_month, month_code) == [shared, vup]
+    suffix = "?light=1" if month_code == "202611" else "/by_month?month=202610"
     assert set(calls) == {
-        f"{base}/by_month" for base in
+        f"{base}{suffix}" for base in
         (query.cfg.vr_gift_api_base, query.cfg.psp_gift_api_base, VUP_BASE)
     }
 
@@ -140,12 +147,16 @@ def test_brawl_douchong_remains_vr_psp_only(monkeypatch, period):
 def test_brawl_live_list_remains_vr_psp_only(monkeypatch):
     calls = []
 
-    async def fetch(url):
-        calls.append(url)
-        return [{"status": 1, "anchor_name": "主播"}]
+    async def get(client, url, *, params):
+        request = client.build_request("GET", url, params=params)
+        calls.append(str(request.url))
+        return httpx.Response(200, json=[{"status": 1, "anchor_name": "主播"}])
 
-    monkeypatch.setattr(live_list, "_fetch_json_list", fetch)
+    monkeypatch.setattr(live_list, "api_get", get)
     monkeypatch.setattr(live_list, "finish_message", AsyncMock())
     monkeypatch.setattr(live_list, "_render_live_list_image", lambda *a: "png")
     anyio.run(live_list.大乱斗开播.handlers[0].call, EVENT)
-    assert set(calls) == {live_list.cfg.vr_gift_api_base, live_list.cfg.psp_gift_api_base}
+    assert set(calls) == {
+        f"{live_list.cfg.vr_gift_api_base}?light=1",
+        f"{live_list.cfg.psp_gift_api_base}?light=1",
+    }

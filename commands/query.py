@@ -23,12 +23,14 @@ from nonebot.adapters.onebot.v11 import (
 from nonebot.params import CommandArg
 from nonebot.log import logger
 
+from ..api_client import create_client
 from ..api_client import get as api_get
 from ..config import Config
 from ..message_sender import finish as finish_message
 from ..toolkit import PicGenerator, Color, timestamp_format
 
 cfg = get_plugin_config(Config)
+_BEIJING_TZ = datetime.timezone(datetime.timedelta(hours=8))
 
 # -------------------- commands --------------------
 查直播 = on_command("查直播", block=True, priority=5)
@@ -87,39 +89,30 @@ def _match_anchor(items: List[Dict[str, Any]], keyword: str) -> Optional[Dict[st
     return next((it for it in items if keyword in str(it.get("anchor_name", ""))), None)
 
 
-async def _fetch_json(url: str) -> Any:
-    async with httpx.AsyncClient(timeout=cfg.vr_http_timeout) as client:
-        resp = await api_get(client, url)
+async def _fetch_json(url: str, *, params: httpx.QueryParamTypes | None = None) -> Any:
+    async with create_client(timeout=cfg.vr_http_timeout) as client:
+        resp = await api_get(client, url, params=params)
         return resp.json()
 
 
-async def _fetch_gift_list(base: str) -> List[Dict[str, Any]]:
-    """
-    base 是 gift 根：例如 https://vr.qianqiuzy.cn/gift
-    """
-    data = await _fetch_json(base)
-    if isinstance(data, list):
-        return [d for d in data if isinstance(d, dict)]
-    if isinstance(data, dict) and isinstance(data.get("data"), list):
-        return [d for d in data["data"] if isinstance(d, dict)]
+def _gift_items(data: Any) -> list[dict[str, Any]]:
+    items = data.get("data") if isinstance(data, dict) else data
+    if isinstance(items, list):
+        return [item for item in items if isinstance(item, dict)]
     return []
 
 
 async def _locate_room_by_anchor(anchor_kw: str) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
     """
-    通过 /gift 列表搜索主播，返回 (chosen_base, match_item)
+    通过 /gift?light=1 列表搜索主播，返回 (chosen_base, match_item)
     顺序请求（稳定优先）。
     """
     bases = [cfg.vr_gift_api_base, cfg.psp_gift_api_base, cfg.vup_gift_api_base]
 
     for base in bases:
         try:
-            data = await _fetch_json(base)
-            lst = data if isinstance(data, list) else (data.get("data") if isinstance(data, dict) else None)
-            if not isinstance(lst, list):
-                continue
-
-            match = _match_anchor([x for x in lst if isinstance(x, dict)], anchor_kw)
+            data = await _fetch_json(base, params={"light": 1})
+            match = _match_anchor(_gift_items(data), anchor_kw)
             if match:
                 return base, match
 
@@ -881,16 +874,22 @@ def _dedup_by_anchor_room(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return out
 
 
+def _gift_current_month() -> str:
+    return datetime.datetime.now(_BEIJING_TZ).strftime("%Y%m")
+
+
 async def _fetch_month_list(client: httpx.AsyncClient, base: str, month_code: str) -> List[Dict[str, Any]]:
-    url = f"{base}/by_month"
     try:
-        r = await api_get(client, url, params={"month": month_code})
-        data = r.json()
-        if isinstance(data, list):
-            return [x for x in data if isinstance(x, dict)]
-        if isinstance(data, dict) and isinstance(data.get("data"), list):
-            return [x for x in data["data"] if isinstance(x, dict)]
-        return []
+        if month_code == _gift_current_month():
+            response = await api_get(client, base, params={"light": 1})
+            items = _gift_items(response.json())
+            # 月末等待限流或重试时可能跨月，按指定月份重新查询。
+            if month_code == _gift_current_month() and all(
+                item.get("month") == month_code for item in items
+            ):
+                return items
+        response = await api_get(client, f"{base}/by_month", params={"month": month_code})
+        return _gift_items(response.json())
     except Exception:
         return []
 
@@ -898,7 +897,7 @@ async def _fetch_month_list(client: httpx.AsyncClient, base: str, month_code: st
 async def fetch_all_data_by_month(month_code: str) -> List[Dict[str, Any]]:
     """并行拉取 VR+PSP+VUP 按月数据并合并去重。"""
     bases = [cfg.vr_gift_api_base, cfg.psp_gift_api_base, cfg.vup_gift_api_base]
-    async with httpx.AsyncClient(timeout=cfg.vr_http_timeout) as client:
+    async with create_client(timeout=cfg.vr_http_timeout) as client:
         lists = await asyncio.gather(*[_fetch_month_list(client, b, month_code) for b in bases])
     merged: List[Dict[str, Any]] = []
     for lst in lists:

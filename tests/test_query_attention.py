@@ -10,6 +10,7 @@ from pathlib import Path
 import anyio
 import httpx
 import nonebot
+import pytest
 from PIL import Image
 
 nonebot.init()
@@ -109,6 +110,7 @@ def test_month_list_keeps_data_after_429_retry(monkeypatch) -> None:
     from nonebot_plugin_vrpspdouchong import api_client
 
     monkeypatch.setattr(api_client, "_limiter", api_client._RequestLimiter())
+    monkeypatch.setattr(query, "_gift_current_month", lambda: "202611")
     attempts = []
     expected = [{"room_id": 1, "anchor_name": "主播A"}]
 
@@ -124,3 +126,37 @@ def test_month_list_keeps_data_after_429_retry(monkeypatch) -> None:
     anyio.run(run)
 
     assert attempts == ["https://example.test/gift/by_month?month=202609"] * 2
+
+
+@pytest.mark.parametrize(
+    ("month_after_request", "light_rows"),
+    [("202611", [{"room_id": 1, "month": "202612", "gift": 10}]), ("202612", [])],
+    ids=["response-month-changed", "local-month-changed"],
+)
+def test_month_list_uses_requested_month_if_light_query_crosses_month(
+    monkeypatch, month_after_request, light_rows,
+) -> None:
+    from nonebot_plugin_vrpspdouchong import api_client
+
+    monkeypatch.setattr(api_client, "_limiter", api_client._RequestLimiter())
+    months = iter(["202611", month_after_request])
+    monkeypatch.setattr(query, "_gift_current_month", lambda: next(months))
+    attempts = []
+    expected = [{"room_id": 1, "month": "202611", "gift": 100}]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        attempts.append(str(request.url))
+        if request.url.path == "/gift":
+            return httpx.Response(200, json=light_rows)
+        return httpx.Response(200, json=expected)
+
+    async def run() -> None:
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            assert await query._fetch_month_list(client, "https://example.test/gift", "202611") == expected
+
+    anyio.run(run)
+
+    assert attempts == [
+        "https://example.test/gift?light=1",
+        "https://example.test/gift/by_month?month=202611",
+    ]

@@ -12,6 +12,7 @@ from nonebot.adapters.onebot.v11 import Bot, Message, MessageEvent, MessageSegme
 from nonebot.log import logger
 from nonebot.params import CommandArg
 
+from ..api_client import create_client
 from ..api_client import get as api_get
 from ..config import Config
 from ..message_sender import finish as finish_message, send as send_message
@@ -197,7 +198,7 @@ def build_query_source_text(event: MessageEvent) -> str:
 async def fetch_period_data(api_base: str, period: QueryPeriod) -> List[Dict[str, Any]]:
     """使用服务端的月份或年度汇总，不在插件内按月拼接年度数据。"""
     params = {"year" if period.annual else "month": period.code}
-    async with httpx.AsyncClient(timeout=cfg.vr_http_timeout) as client:
+    async with create_client(timeout=cfg.vr_http_timeout) as client:
         resp = await api_get(client, f"{api_base.rstrip('/')}/by_month", params=params)
         data = resp.json()
 

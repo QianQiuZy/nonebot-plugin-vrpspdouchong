@@ -61,7 +61,7 @@ def test_build_daily_row_uses_the_requested_attention_record() -> None:
 
 def test_fetch_daily_data_traverses_rooms_and_filters_the_day() -> None:
     responses = {
-        "https://example.test/gift": httpx.Response(
+        "https://example.test/gift?light=1": httpx.Response(
             200,
             json=[
                 {"room_id": 1, "anchor_name": "主播A"},

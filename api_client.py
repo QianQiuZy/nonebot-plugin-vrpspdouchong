@@ -1,4 +1,4 @@
-"""Shared request pacing and 429 handling for all VR / PSP / VUP API calls."""
+"""Shared HTTP/2 client settings, request pacing, and 429 handling."""
 
 from __future__ import annotations
 
@@ -35,6 +35,10 @@ class _RequestLimiter:
 
 
 _limiter = _RequestLimiter()
+
+
+def create_client(*, timeout: float) -> httpx.AsyncClient:
+    return httpx.AsyncClient(timeout=timeout, http2=True, http1=False)
 
 
 async def get(
